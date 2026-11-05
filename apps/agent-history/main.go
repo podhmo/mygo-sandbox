@@ -25,6 +25,7 @@ import (
 	"github.com/podhmo/mygo-sandbox/apps/agent-history/internal/claudecode"
 	"github.com/podhmo/mygo-sandbox/apps/agent-history/internal/codex"
 	"github.com/podhmo/mygo-sandbox/apps/agent-history/internal/history"
+	"github.com/podhmo/mygo-sandbox/apps/agent-history/internal/redact"
 )
 
 // row はサイドバーのリストの 1 行。プロジェクトの見出しかセッション。
@@ -57,15 +58,21 @@ type app struct {
 	showTools      bool
 	showThinking   bool
 	md             markdown.Options
-	status         string
+	status         string // 表示用 (マスク済み)
+
+	// マスキング (docs/sketch/ja/agent-history-masking.md)
+	mask      bool
+	redactor  *redact.Redactor
+	maskCache map[string]string
 
 	// 非同期処理と副作用。main で実装を入れ、テストでは差し替える。
-	loadEntries func(*history.Session)
+	// loadEntries は fetchEntries を別 goroutine で呼び、結果を setEntries に渡す。
+	loadEntries func(s *history.Session, mask bool)
 	copyText    func(string)
 }
 
 func newApp(sources []history.Source) *app {
-	a := &app{sources: sources, selected: -1, sidebarW: 340}
+	a := &app{sources: sources, selected: -1, sidebarW: 340, mask: true, redactor: redact.New(redact.Options{}), maskCache: map[string]string{}}
 	a.list.Selected = &a.selected
 	a.list.Header = func(i int) bool { return a.rows[i].project != nil }
 	a.list.Key = func(i int) any {
@@ -77,7 +84,7 @@ func newApp(sources []history.Source) *app {
 	}
 	a.list.Label = func(i int) string {
 		if r := a.rows[i]; r.session != nil {
-			return r.session.Title
+			return a.v(r.session.Title) // 読み上げ・タイプして選ぶときの名前も伏せる
 		}
 		return ""
 	}
@@ -131,16 +138,29 @@ func (a *app) choose(s *history.Session) {
 		return
 	}
 	a.current = s
-	a.entries, a.open, a.shown, a.entriesErr = nil, nil, nil, nil
-	a.entriesLoading = true
 	a.status = ""
 	a.convo.ScrollTo(0, ui.Start)
-	a.loadEntries(s)
+	a.reloadEntries()
 }
 
-func (a *app) setEntries(s *history.Session, es []history.Entry, err error) {
-	if s != a.current {
-		return // 読み込み中に別のセッションが選ばれた
+func (a *app) reloadEntries() {
+	a.entries, a.open, a.shown, a.entriesErr = nil, nil, nil, nil
+	a.entriesLoading = true
+	a.loadEntries(a.current, a.mask)
+}
+
+// fetchEntries は会話を読み、mask なら伏せる。本文は量が多いので別 goroutine で呼ぶ。
+func (a *app) fetchEntries(s *history.Session, mask bool) ([]history.Entry, error) {
+	es, err := s.Source.Entries(s)
+	if mask {
+		es = a.redactor.Entries(es)
+	}
+	return es, err
+}
+
+func (a *app) setEntries(s *history.Session, mask bool, es []history.Entry, err error) {
+	if s != a.current || mask != a.mask {
+		return // 読み込み中に別のセッションが選ばれた、またはマスクが切り替えられた
 	}
 	a.entriesLoading = false
 	a.entries, a.entriesErr = es, err
@@ -155,6 +175,42 @@ func (a *app) refreshShown() {
 			continue
 		}
 		a.shown = append(a.shown, i)
+	}
+}
+
+// v は表示する文字列を、マスクがオンなら伏せて返す。サイドバーやヘッダーの短い文字列用。
+func (a *app) v(s string) string {
+	if !a.mask || s == "" {
+		return s
+	}
+	if m, ok := a.maskCache[s]; ok {
+		return m
+	}
+	m := a.redactor.String(s)
+	a.maskCache[s] = m
+	return m
+}
+
+func (a *app) setMask(on bool) {
+	a.mask = on
+	a.status = ""
+	if a.current != nil {
+		a.reloadEntries()
+	}
+}
+
+func (a *app) sidebarStatus(c *ui.Context) {
+	t := c.Theme()
+	switch {
+	case a.loading:
+		ui.Row(c).Gap(6).Children(func() {
+			ui.Spinner(c).Label("Loading sessions")
+			ui.Text(c, "Loading sessions…").FontSize(12).TextColor(t.TextMuted)
+		})
+	case a.loadErr != nil:
+		ui.Text(c, a.v(a.loadErr.Error())).FontSize(12).TextColor(t.Danger).MaxLines(2)
+	default:
+		ui.Text(c, plural(a.nRows, "session")).FontSize(12).TextColor(t.TextMuted)
 	}
 }
 
@@ -180,23 +236,19 @@ func (a *app) sidebar(c *ui.Context) {
 					a.filter()
 				}
 			}
-			switch {
-			case a.loading:
-				ui.Row(c).Gap(6).Children(func() {
-					ui.Spinner(c).Label("Loading sessions")
-					ui.Text(c, "Loading sessions…").FontSize(12).TextColor(t.TextMuted)
-				})
-			case a.loadErr != nil:
-				ui.Text(c, a.loadErr.Error()).FontSize(12).TextColor(t.Danger)
-			default:
-				ui.Text(c, plural(a.nRows, "session")).FontSize(12).TextColor(t.TextMuted)
-			}
+			ui.Row(c).Gap(8).Children(func() {
+				ui.Row(c).Grow(1).Children(func() { a.sidebarStatus(c) })
+				mask := a.mask
+				if ui.Checkbox(c.Key("mask"), &mask, "Mask").Label("Mask private information").Changed() {
+					a.setMask(mask)
+				}
+			})
 		})
 		ui.List(c.Key("sessions"), &a.list, len(a.rows), func(i int) {
 			r := a.rows[i]
 			if r.project != nil {
 				ui.Column(c).Padding(8, 10, 4).Background(t.Background).Children(func() {
-					ui.Text(c, shortPath(r.project.Path)).FontSize(11).Bold().TextColor(t.TextMuted).NoWrap().Ellipsis("…")
+					ui.Text(c, a.v(shortPath(r.project.Path))).FontSize(11).Bold().TextColor(t.TextMuted).NoWrap().Ellipsis("…")
 				})
 				return
 			}
@@ -206,7 +258,7 @@ func (a *app) sidebar(c *ui.Context) {
 				muted = t.AccentText // 選択中の行はアクセント色の背景になる
 			}
 			ui.Column(c).Padding(6, 10).Gap(2).Children(func() {
-				ui.Text(c, s.Title).MaxLines(2)
+				ui.Text(c, a.v(s.Title)).MaxLines(2)
 				meta := fmt.Sprintf("%s · %s", s.End.Local().Format("2006-01-02 15:04"), plural(s.Prompts, "prompt"))
 				if len(a.sources) > 1 {
 					meta = s.Source.Name() + " · " + meta
@@ -237,18 +289,18 @@ func (a *app) conversation(c *ui.Context) {
 	ui.Column(c).Fill().Children(func() {
 		// ヘッダー
 		ui.Column(c).Padding(12, 16).Gap(4).Children(func() {
-			ui.Text(c, s.Title).FontSize(17).Bold().Selectable()
-			meta := s.Source.Name() + " · " + shortPath(s.Cwd)
+			ui.Text(c, a.v(s.Title)).FontSize(17).Bold().Selectable()
+			meta := s.Source.Name() + " · " + a.v(shortPath(s.Cwd))
 			if s.GitBranch != "" {
-				meta += " · " + s.GitBranch
+				meta += " · " + a.v(s.GitBranch)
 			}
 			meta += fmt.Sprintf(" · %s – %s · %s · %s", s.Start.Local().Format("2006-01-02 15:04"), s.End.Local().Format("15:04"), plural(s.Prompts, "prompt"), humanSize(s.Size))
 			ui.Text(c, meta).FontSize(12).TextColor(t.TextMuted).Selectable()
 			ui.Row(c).Gap(8).Children(func() {
 				if cmd := s.Source.ResumeCommand(s); cmd != "" {
 					if ui.Button(c.Key("copy-resume"), "Copy resume command").Clicked() {
-						a.copyText(cmd)
-						a.status = "Copied: " + cmd
+						a.copyText(cmd) // クリップボードには実際に使える値を入れる
+						a.status = "Copied: " + a.v(cmd)
 					}
 				}
 				if ui.Button(c.Key("copy-id"), "Copy session ID").Clicked() {
@@ -273,7 +325,7 @@ func (a *app) conversation(c *ui.Context) {
 		case a.entriesLoading:
 			ui.Column(c).Grow(1).Center().Children(func() { ui.Spinner(c).Label("Loading conversation") })
 		case a.entriesErr != nil:
-			ui.Text(c, a.entriesErr.Error()).TextColor(t.Danger).Padding(16)
+			ui.Text(c, a.v(a.entriesErr.Error())).TextColor(t.Danger).Padding(16)
 		default:
 			ui.List(c.Key("convo:"+s.Source.ID()+":"+s.ID), &a.convo, len(a.shown), func(i int) {
 				a.entry(c, s, a.shown[i])
@@ -361,6 +413,8 @@ func humanSize(n int64) string {
 type options struct {
 	claudeRoot string
 	codexRoot  string
+	mask       bool
+	maskWords  string
 }
 
 // sources は表示する取得元の一覧。新しいエージェントはここに足す。
@@ -375,17 +429,27 @@ func main() {
 	var opt options
 	flag.StringVar(&opt.claudeRoot, "claude-root", claudecode.DefaultRoot(), "directory of Claude Code projects")
 	flag.StringVar(&opt.codexRoot, "codex-root", codex.DefaultRoot(), "Codex home directory (contains sessions and archived_sessions)")
+	flag.BoolVar(&opt.mask, "mask", true, "mask credentials and private information on start (toggle in the window)")
+	flag.StringVar(&opt.maskWords, "mask-words", "", "comma-separated extra words to mask, such as a GitHub username or company name")
 	flag.Parse()
 
 	a := newApp(sources(opt))
+	a.mask = opt.mask
+	var words []string
+	for _, w := range strings.Split(opt.maskWords, ",") {
+		if w = strings.TrimSpace(w); w != "" {
+			words = append(words, w)
+		}
+	}
+	a.redactor = redact.FromEnvironment(words)
 	a.loading = true
 	a.copyText = func(s string) { mygo.Clipboard.WriteText(s) }
 	mygo.App.WhenReady(func() {
 		var win *mygo.Window
-		a.loadEntries = func(s *history.Session) {
+		a.loadEntries = func(s *history.Session, mask bool) {
 			go func() {
-				es, err := s.Source.Entries(s)
-				win.Update(func() { a.setEntries(s, es, err) })
+				es, err := a.fetchEntries(s, mask)
+				win.Update(func() { a.setEntries(s, mask, es, err) })
 			}()
 		}
 		win = mygo.NewWindow(mygo.WindowOptions{

@@ -10,6 +10,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/podhmo/mygo-sandbox/apps/agent-history/internal/history"
+	"github.com/podhmo/mygo-sandbox/apps/agent-history/internal/redact"
 )
 
 // fakeSource はメモリ上の history.Source。UI のテスト用。
@@ -46,10 +47,14 @@ func fixtures() []history.Source {
 	beta := &fakeSource{id: "beta", name: "Beta Agent", assistant: "Beta"}
 	beta.sessions = []*history.Session{
 		{Source: beta, ID: "b1", Title: "readme-fix", FirstPrompt: "README を直して", Cwd: "/tmp/demo", Start: at(3), End: at(4), Prompts: 1},
+		{Source: beta, ID: "b2", Title: "alice の設定を確認", FirstPrompt: "設定", Cwd: "/Users/alice/work", Start: at(5), End: at(6), Prompts: 1},
 	}
 	beta.entries = map[string][]history.Entry{"b1": {
 		{Kind: history.KindUser, Time: at(3), Text: "README を直して"},
 		{Kind: history.KindAssistant, Time: at(4), Text: "直しました。"},
+	}, "b2": {
+		{Kind: history.KindUser, Time: at(5), Text: "連絡先は bob@corp.co.jp です"},
+		{Kind: history.KindTool, Time: at(5), Tool: "Bash", Text: "cat /Users/alice/.env", Result: "API_KEY=abcd1234efgh"},
 	}}
 	return []history.Source{alpha, beta}
 }
@@ -60,9 +65,10 @@ func newTestApp(t *testing.T) (*app, *[]string) {
 	a := newApp(fixtures())
 	var copied []string
 	a.copyText = func(s string) { copied = append(copied, s) }
-	a.loadEntries = func(s *history.Session) {
-		es, err := s.Source.Entries(s)
-		a.setEntries(s, es, err)
+	a.redactor = redact.New(redact.Options{Home: "/Users/alice", Users: []string{"alice"}})
+	a.loadEntries = func(s *history.Session, mask bool) {
+		es, err := a.fetchEntries(s, mask)
+		a.setEntries(s, mask, es, err)
 	}
 	a.setProjects(history.Load(a.sources))
 	return a, &copied
@@ -73,10 +79,10 @@ func TestViewer(t *testing.T) {
 	tt := ui.NewTester(a.view, 1000, 700)
 
 	// 取得元が違っても同じ作業ディレクトリなら 1 つのプロジェクトにまとまる
-	if len(a.projects) != 1 || len(a.rows) != 3 {
+	if len(a.projects) != 2 || len(a.rows) != 5 {
 		t.Fatalf("projects=%d rows=%d", len(a.projects), len(a.rows))
 	}
-	if !tt.HasText("Choose a session") || !tt.HasText("hello world を書く") || !tt.HasText("readme-fix") || !tt.HasText("2 sessions") {
+	if !tt.HasText("Choose a session") || !tt.HasText("hello world を書く") || !tt.HasText("readme-fix") || !tt.HasText("3 sessions") {
 		t.Fatalf("texts=%q", tt.Texts())
 	}
 
@@ -123,7 +129,7 @@ func TestViewer(t *testing.T) {
 	if err := tt.Click("Beta Agent"); err != nil {
 		t.Fatal(err)
 	}
-	if a.nRows != 1 || a.rows[1].session.ID != "b1" {
+	if a.nRows != 2 {
 		t.Errorf("agent filter: rows=%d", a.nRows)
 	}
 	if err := tt.Click("All"); err != nil {
@@ -156,4 +162,57 @@ func hasPrefix(texts []string, prefix string) string {
 		}
 	}
 	return ""
+}
+
+func TestMasking(t *testing.T) {
+	a, copied := newTestApp(t)
+	tt := ui.NewTester(a.view, 1000, 700)
+
+	// 既定でオン: サイドバーのパスとタイトルも伏せる
+	if !tt.HasText("~/work") || !tt.HasText("‹user› の設定を確認") || tt.HasText("alice の設定を確認") {
+		t.Fatalf("sidebar not masked: %q", tt.Texts())
+	}
+	if err := tt.Click("‹user› の設定を確認"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.Click("Tools"); err != nil {
+		t.Fatal(err)
+	}
+	if !tt.HasText("連絡先は ‹email› です") {
+		t.Errorf("email not masked: %q", tt.Texts())
+	}
+	tool := hasPrefix(tt.Texts(), "⚙ Bash")
+	if tool != "⚙ Bash  cat ~/.env" {
+		t.Errorf("tool title: %q", tool)
+	}
+	tt.Click(tool)
+	tt.Advance(time.Second)
+	if !tt.HasText("API_KEY=‹redacted:value›") || tt.HasText("API_KEY=abcd1234efgh") {
+		t.Errorf("tool result not masked: %q", tt.Texts())
+	}
+
+	// コピーするコマンドは本物、表示は伏せる
+	if err := tt.Click("Copy resume command"); err != nil {
+		t.Fatal(err)
+	}
+	if got := (*copied)[0]; got != "beta resume b2" {
+		t.Errorf("copied=%q", got)
+	}
+
+	// オフにすると元の文字列 (会話も読み直す)
+	if err := tt.Click("Mask private information"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !tt.HasText("連絡先は bob@corp.co.jp です") || !tt.HasText("alice の設定を確認") {
+		t.Errorf("unmasked: %q", tt.Texts())
+	}
+
+	// 検索は元の文字列に対して効く
+	a.setMask(true)
+	a.query = "alice"
+	a.filter()
+	if a.nRows != 1 {
+		t.Errorf("search on raw text: rows=%d", a.nRows)
+	}
 }

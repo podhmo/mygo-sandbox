@@ -16,6 +16,18 @@ go test ./apps/agent-history/...                # ウィンドウ無しでテス
 | Claude Code | `internal/claudecode` | `~/.claude/projects`（`-claude-root` で変更） | [claude-code-session-files.md](../../docs/sketch/ja/claude-code-session-files.md) |
 | Codex | `internal/codex` | `$CODEX_HOME` または `~/.codex`（`-codex-root` で変更） | [codex-session-files.md](../../docs/sketch/ja/codex-session-files.md) |
 
+## マスキング
+
+認証情報・個人情報・環境を特定できる情報（ホームディレクトリ、ユーザー名、ホスト名など）を伏せて表示する。**既定でオン**で、サイドバーの `Mask` で切り替える。対象の定義は [agent-history-masking.md](../../docs/sketch/ja/agent-history-masking.md)。
+
+```sh
+go run ./apps/agent-history -mask-words podhmo,example-corp   # 追加で伏せる語（GitHub のユーザー名、会社名など）
+go run ./apps/agent-history -mask=false                       # 起動時はオフ
+```
+
+- 表示だけを変える（元のファイルは書き換えない）。「Copy resume command」でクリップボードに入れるコマンドは、そのまま使えるよう伏せない。
+- パターンでの検出なので完全ではない。公開する資料に使うときは目でも確認すること。
+
 ## 構成
 
 ```
@@ -25,6 +37,7 @@ apps/agent-history/
   internal/history/       取得元によらない型: Source, Session, Entry, Project / 共通の小道具
   internal/claudecode/    Claude Code の Source 実装と testdata
   internal/codex/         Codex の Source 実装と testdata
+  internal/redact/        表示用のマスキング
 ```
 
 - UI は `history.Source` のインターフェースだけに依存する。セッションの一覧（`Sessions`）、会話（`Entries`）、再開コマンド（`ResumeCommand`）を Source が返す。
