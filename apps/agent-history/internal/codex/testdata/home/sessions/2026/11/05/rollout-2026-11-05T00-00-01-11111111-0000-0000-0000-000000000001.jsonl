@@ -1,0 +1,19 @@
+{"timestamp": "2026-11-05T00:00:01Z", "type": "session_meta", "payload": {"id": "11111111-0000-0000-0000-000000000001", "cwd": "/tmp/demo", "git": {"branch": "main"}, "source": "cli", "cli_version": "0.166.0"}}
+{"timestamp": "2026-11-05T00:00:02Z", "type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "# AGENTS.md instructions\nfixture instructions"}]}}
+{"timestamp": "2026-11-05T00:00:03Z", "type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "<environment_context>fixture</environment_context>"}]}}
+{"timestamp": "2026-11-05T00:00:04Z", "type": "response_item", "payload": {"type": "message", "role": "developer", "content": [{"type": "output_text", "text": "fixture system rules"}]}}
+{"timestamp": "2026-11-05T00:00:05Z", "type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "automatically inserted context"}], "internal_chat_message_metadata_passthrough": {"content_item_kinds": ["environments.environment_context"]}}}
+{"timestamp": "2026-11-05T00:00:06Z", "type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Go で hello world を書いて"}], "internal_chat_message_metadata_passthrough": {"content_item_kinds": ["user.text"]}}}
+{"timestamp": "2026-11-05T00:00:07Z", "type": "event_msg", "payload": {"type": "item_completed", "item": {"type": "UserMessage", "content": [{"type": "text", "text": "Go で hello world を書いて"}]}}}
+{"timestamp": "2026-11-05T00:00:08Z", "type": "response_item", "payload": {"type": "reasoning", "summary": [{"type": "summary_text", "text": "考え中"}], "encrypted_content": "fixture-ciphertext"}}
+{"timestamp": "2026-11-05T00:00:09Z", "type": "response_item", "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "実行します。"}]}}
+{"timestamp": "2026-11-05T00:00:10Z", "type": "response_item", "payload": {"type": "function_call", "call_id": "call-1", "name": "exec_command", "arguments": "{\"cmd\":\"go run .\"}"}}
+{"timestamp": "2026-11-05T00:00:11Z", "type": "response_item", "payload": {"type": "function_call_output", "call_id": "call-1", "output": "hello world"}}
+{"timestamp": "2026-11-05T00:00:12Z", "type": "response_item", "payload": {"type": "custom_tool_call", "call_id": "call-2", "name": "exec", "input": "run fixture check"}}
+{"timestamp": "2026-11-05T00:00:13Z", "type": "response_item", "payload": {"type": "custom_tool_call_output", "call_id": "call-2", "output": [{"type": "input_text", "text": "Process exited with code 1"}, {"type": "input_text", "text": "fixture failure"}]}}
+{"timestamp": "2026-11-05T00:00:14Z", "type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "テストも追加して"}]}}
+{"timestamp": "2026-11-05T00:00:15Z", "type": "response_item", "payload": {"type": "agent_message", "author": "/root/worker", "recipient": "/root", "content": [{"type": "input_text", "text": "補助作業の完了"}]}}
+{"timestamp": "2026-11-05T00:00:16Z", "type": "compacted", "payload": {"message": "これまでの要約", "replacement_history": [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "copied context"}]}]}}
+{"timestamp": "2026-11-05T00:00:17Z", "type": "event_msg", "payload": {"type": "turn_aborted"}}
+{"timestamp": "2026-11-05T00:00:18Z", "type": "response_item", "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "完了しました。"}]}}
+{"timestamp": "2026-11-05T00:00:19Z", "type": "event_msg", "payload": {"type": "task_complete"}}

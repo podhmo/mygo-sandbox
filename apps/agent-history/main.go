@@ -23,6 +23,7 @@ import (
 	"github.com/egoist/mygo/ui/markdown"
 
 	"github.com/podhmo/mygo-sandbox/apps/agent-history/internal/claudecode"
+	"github.com/podhmo/mygo-sandbox/apps/agent-history/internal/codex"
 	"github.com/podhmo/mygo-sandbox/apps/agent-history/internal/history"
 )
 
@@ -359,18 +360,21 @@ func humanSize(n int64) string {
 // options はコマンドラインの指定。取得元を足すときはここに保存先のフラグを足す。
 type options struct {
 	claudeRoot string
+	codexRoot  string
 }
 
 // sources は表示する取得元の一覧。新しいエージェントはここに足す。
 func sources(opt options) []history.Source {
 	return []history.Source{
 		claudecode.New(opt.claudeRoot),
+		codex.New(opt.codexRoot),
 	}
 }
 
 func main() {
 	var opt options
 	flag.StringVar(&opt.claudeRoot, "claude-root", claudecode.DefaultRoot(), "directory of Claude Code projects")
+	flag.StringVar(&opt.codexRoot, "codex-root", codex.DefaultRoot(), "Codex home directory (contains sessions and archived_sessions)")
 	flag.Parse()
 
 	a := newApp(sources(opt))

@@ -14,6 +14,7 @@ go test ./apps/agent-history/...                # ウィンドウ無しでテス
 | 取得元 | パッケージ | 保存先 | 形式の調査メモ |
 |---|---|---|---|
 | Claude Code | `internal/claudecode` | `~/.claude/projects`（`-claude-root` で変更） | [claude-code-session-files.md](../../docs/sketch/ja/claude-code-session-files.md) |
+| Codex | `internal/codex` | `$CODEX_HOME` または `~/.codex`（`-codex-root` で変更） | [codex-session-files.md](../../docs/sketch/ja/codex-session-files.md) |
 
 ## 構成
 
@@ -23,6 +24,7 @@ apps/agent-history/
   main_test.go            UI のテスト（偽の Source を使う）
   internal/history/       取得元によらない型: Source, Session, Entry, Project / 共通の小道具
   internal/claudecode/    Claude Code の Source 実装と testdata
+  internal/codex/         Codex の Source 実装と testdata
 ```
 
 - UI は `history.Source` のインターフェースだけに依存する。セッションの一覧（`Sessions`）、会話（`Entries`）、再開コマンド（`ResumeCommand`）を Source が返す。

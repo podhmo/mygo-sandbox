@@ -1,0 +1,2 @@
+{"timestamp": "2026-11-05T00:00:20Z", "type": "session_meta", "payload": {"id": "22222222-0000-0000-0000-000000000002", "cwd": "/tmp/demo", "source": "cli"}}
+{"timestamp": "2026-11-05T00:00:21Z", "type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "README を更新して"}]}}
