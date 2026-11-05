@@ -27,6 +27,7 @@ go test ./apps/agent-history/...                # ウィンドウ無しでテス
 | Prompts, replies and thinking | 上に加えて thinking（`<details>` で折りたたむ） |
 
 - 先頭にタイトル、エージェント、プロジェクト、ブランチ、日時、セッション ID を書く。
+- 話し手が替わるところ（2 つ目以降の見出しの前）は `---` の線で区切る。
 - ツール呼び出し、補足（中断など）、compact の要約は含めない。画面の Tools / Thinking の切り替えには左右されない。
 - **マスクがオンなら、伏せた内容をコピーする**。
 - 変換は `history.Markdown`（`internal/history/markdown.go`）。

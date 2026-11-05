@@ -31,17 +31,17 @@ func TestMarkdown(t *testing.T) {
 	}{
 		{"prompts only", PromptsOnly, head +
 			"## 1. You · 10:00:00\n\nGo で hello world\n\n" +
-			"## 2. You (while working) · 10:04:00\n\nテストも\n"},
+			"---\n\n## 2. You (while working) · 10:04:00\n\nテストも\n"},
 		{"prompts and replies", PromptsAndReplies, head +
 			"## You · 10:00:00\n\nGo で hello world\n\n" +
-			"## Claude · 10:01:00\n\n**main.go** を作ります。\n\nできました。\n\n" +
-			"## You (while working) · 10:04:00\n\nテストも\n\n" +
-			"## Claude · 10:06:00\n\n追加しました。\n"},
+			"---\n\n## Claude · 10:01:00\n\n**main.go** を作ります。\n\nできました。\n\n" +
+			"---\n\n## You (while working) · 10:04:00\n\nテストも\n\n" +
+			"---\n\n## Claude · 10:06:00\n\n追加しました。\n"},
 		{"with thinking", PromptsRepliesThink, head +
 			"## You · 10:00:00\n\nGo で hello world\n\n" +
-			"## Claude · 10:01:00\n\n<details>\n<summary>Thinking</summary>\n\n考え中\n\n</details>\n\n**main.go** を作ります。\n\nできました。\n\n" +
-			"## You (while working) · 10:04:00\n\nテストも\n\n" +
-			"## Claude · 10:06:00\n\n追加しました。\n"},
+			"---\n\n## Claude · 10:01:00\n\n<details>\n<summary>Thinking</summary>\n\n考え中\n\n</details>\n\n**main.go** を作ります。\n\nできました。\n\n" +
+			"---\n\n## You (while working) · 10:04:00\n\nテストも\n\n" +
+			"---\n\n## Claude · 10:06:00\n\n追加しました。\n"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

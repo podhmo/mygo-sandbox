@@ -28,6 +28,7 @@ type MarkdownMeta struct {
 }
 
 // Markdown は会話をマークダウンにする。ツール呼び出し・補足・要約は含めない。
+// 話し手が替わるところ (見出しの前) は --- で区切る。
 // 続けて並ぶアシスタントの返答 (Claude Code はブロックごとに分かれて記録される)
 // は 1 つの見出しにまとめる。
 func Markdown(meta MarkdownMeta, entries []Entry, level MarkdownLevel) string {
@@ -51,6 +52,15 @@ func Markdown(meta MarkdownMeta, entries []Entry, level MarkdownLevel) string {
 	assistant := FirstNonEmpty(meta.AssistantName, "Assistant")
 	prompt := 0
 	inReply := false // 直前がアシスタントの見出しの下か
+	sections := 0
+	// heading は話し手の見出しを書く。2 つ目以降の見出しの前には区切り線 (---) を入れる。
+	heading := func(format string, args ...any) {
+		if sections > 0 {
+			b.WriteString("---\n\n")
+		}
+		sections++
+		fmt.Fprintf(&b, "## "+format+"\n\n", args...)
+	}
 	for _, e := range entries {
 		switch {
 		case e.Kind == KindUser:
@@ -60,21 +70,21 @@ func Markdown(meta MarkdownMeta, entries []Entry, level MarkdownLevel) string {
 				label = "You (while working)"
 			}
 			if level == PromptsOnly {
-				fmt.Fprintf(&b, "## %d. %s · %s\n\n", prompt, label, stamp(e.Time))
+				heading("%d. %s · %s", prompt, label, stamp(e.Time))
 			} else {
-				fmt.Fprintf(&b, "## %s · %s\n\n", label, stamp(e.Time))
+				heading("%s · %s", label, stamp(e.Time))
 			}
 			b.WriteString(body(e.Text))
 			inReply = false
 		case e.Kind == KindAssistant && level >= PromptsAndReplies:
 			if !inReply {
-				fmt.Fprintf(&b, "## %s · %s\n\n", assistant, stamp(e.Time))
+				heading("%s · %s", assistant, stamp(e.Time))
 				inReply = true
 			}
 			b.WriteString(body(e.Text))
 		case e.Kind == KindThinking && level >= PromptsRepliesThink:
 			if !inReply {
-				fmt.Fprintf(&b, "## %s · %s\n\n", assistant, stamp(e.Time))
+				heading("%s · %s", assistant, stamp(e.Time))
 				inReply = true
 			}
 			b.WriteString("<details>\n<summary>Thinking</summary>\n\n")
