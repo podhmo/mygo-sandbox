@@ -1,0 +1,6 @@
+{
+  "name": "Agent History",
+  "identifier": "io.github.podhmo.agenthistory",
+  "version": "0.1.0",
+  "out": "dist"
+}

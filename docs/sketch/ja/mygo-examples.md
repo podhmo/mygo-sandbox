@@ -66,9 +66,9 @@ go tool mygo build examples/counter    # .app / .dmg を作る
 15. **ターミナルから `screencapture` するとウィンドウが写らない**（壁紙とメニューバーだけになる）。ターミナルに画面収録の権限が無いため。自動で見た目を確認したいときは、`ui.NewTester` + `tt.Image()` のスナップショットを使うのが手軽で確実。
 16. 配布まで考えると、macOS では Developer ID による署名と公証（codesign）、Windows インストーラーには makensis、Windows の署名には osslsigncode が別途必要（`mygo doctor` で確認できる）。
 
-## 応用: `apps/cc-history`（Claude Code の履歴ビューア）を作って分かったこと
+## 応用: `apps/agent-history`（Claude Code などの履歴ビューア。旧 cc-history）を作って分かったこと
 
-Claude Code の過去のセッションを一覧して読む GUI を mygo で作った（`go run ./apps/cc-history`）。セッションファイルの形式は [claude-code-session-files.md](./claude-code-session-files.md) を参照。
+Claude Code の過去のセッションを一覧して読む GUI を mygo で作った（`go run ./apps/agent-history`）。セッションファイルの形式は [claude-code-session-files.md](./claude-code-session-files.md) を参照。
 
 使ったもの:
 

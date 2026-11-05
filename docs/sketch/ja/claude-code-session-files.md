@@ -1,6 +1,6 @@
 # Claude Code のセッションファイル（対話履歴）の調査メモ
 
-`apps/cc-history`（mygo 製の履歴ビューア）を作るために、Claude Code がローカルに残す対話履歴の形式を調べた記録。
+`apps/agent-history`（mygo 製の履歴ビューア）を作るために、Claude Code がローカルに残す対話履歴の形式を調べた記録。
 
 - 調査日: 2026-11-05
 - Claude Code のバージョン: 手元の記録では 2.1.274 〜 2.1.318

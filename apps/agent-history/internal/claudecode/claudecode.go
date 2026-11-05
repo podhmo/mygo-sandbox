@@ -1,78 +1,75 @@
-package main
+// Package claudecode は Claude Code の対話履歴を読む history.Source。
+//
+// Claude Code はセッションを ~/.claude/projects/<cwd を - でつないだ名前>/<session-id>.jsonl
+// に保存する。1 行 1 レコードの JSON Lines。形式の調査は
+// docs/sketch/ja/claude-code-session-files.md。
+package claudecode
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/podhmo/mygo-sandbox/apps/agent-history/internal/history"
 )
 
-// Claude Code はセッションを ~/.claude/projects/<cwd を - でつないだ名前>/<session-id>.jsonl に保存する。
-// 1 行 1 レコードの JSON Lines。詳細は docs/sketch/ja/claude-code-session-files.md。
-
-// Project は ~/.claude/projects 直下の 1 ディレクトリ。
-type Project struct {
-	Dir      string // ディレクトリ名 (-Users-foo-bar)
-	Path     string // 作業ディレクトリ (レコードの cwd。無ければ Dir)
-	Sessions []*Session
-	Last     time.Time
+// Source は Claude Code の履歴。
+type Source struct {
+	Root string // projects ディレクトリ
 }
 
-// Session は 1 つの .jsonl ファイルの要約。
-type Session struct {
-	ID          string
-	File        string
-	Title       string // custom-title > ai-title > agent-name > 最初のプロンプト
-	FirstPrompt string
-	Cwd         string
-	GitBranch   string
-	Start, End  time.Time
-	Prompts     int // 人間の入力の数
-	Size        int64
+var _ history.Source = (*Source)(nil)
+
+// New は root (空なら DefaultRoot) を読む Source を返す。
+func New(root string) *Source {
+	if root == "" {
+		root = DefaultRoot()
+	}
+	return &Source{Root: root}
 }
 
-// EntryKind は会話ビューに出す要素の種類。
-type EntryKind int
+// DefaultRoot は Claude Code のセッション保存先。CLAUDE_CONFIG_DIR を尊重する。
+func DefaultRoot() string {
+	if d := os.Getenv("CLAUDE_CONFIG_DIR"); d != "" {
+		return filepath.Join(d, "projects")
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".claude", "projects")
+}
 
-const (
-	KindUser EntryKind = iota
-	KindAssistant
-	KindThinking
-	KindTool    // tool_use と対応する tool_result をまとめたもの
-	KindNotice  // 中断、タスク通知、ローカルコマンドなど
-	KindSummary // compact 後の要約
-)
+func (*Source) ID() string            { return "claude" }
+func (*Source) Name() string          { return "Claude Code" }
+func (*Source) AssistantName() string { return "Claude" }
 
-// Entry は会話ビューの 1 行。
-type Entry struct {
-	Kind    EntryKind
-	Time    time.Time
-	Text    string
-	Tool    string // KindTool: ツール名
-	Result  string // KindTool: 結果
-	IsError bool
-	Queued  bool // 作業中に送られたユーザー入力
+func (*Source) ResumeCommand(s *history.Session) string {
+	if s.Cwd == "" {
+		return "claude --resume " + s.ID
+	}
+	return fmt.Sprintf("cd %q && claude --resume %s", s.Cwd, s.ID)
 }
 
 // record は jsonl の 1 行のうち使うフィールドだけ。
 type record struct {
-	Type             string                 `json:"type"`
-	Timestamp        time.Time              `json:"timestamp"`
-	Cwd              string                 `json:"cwd"`
-	GitBranch        string                 `json:"gitBranch"`
-	IsSidechain      bool                   `json:"isSidechain"`
-	IsMeta           bool                   `json:"isMeta"`
-	IsCompactSummary bool                   `json:"isCompactSummary"`
-	Origin           *struct{ Kind string } `json:"origin"`
-	Message          *struct {
+	Type             string    `json:"type"`
+	Timestamp        time.Time `json:"timestamp"`
+	Cwd              string    `json:"cwd"`
+	GitBranch        string    `json:"gitBranch"`
+	IsSidechain      bool      `json:"isSidechain"`
+	IsMeta           bool      `json:"isMeta"`
+	IsCompactSummary bool      `json:"isCompactSummary"`
+	Origin           *struct {
+		Kind string `json:"kind"`
+	} `json:"origin"`
+	Message *struct {
 		Role    string          `json:"role"`
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
@@ -107,95 +104,53 @@ var skipPrefixes = [][]byte{
 }
 
 func eachRecord(r io.Reader, fn func(*record)) error {
-	br := bufio.NewReaderSize(r, 1<<20)
-	for {
-		line, err := br.ReadBytes('\n') // 画像を含む行は数 MB になるので Scanner は使わない
-		if len(bytes.TrimSpace(line)) > 0 && !hasAnyPrefix(line, skipPrefixes) {
-			var rec record
-			if json.Unmarshal(line, &rec) == nil {
-				fn(&rec)
+	return history.EachLine(r, func(line []byte) {
+		for _, p := range skipPrefixes {
+			if bytes.HasPrefix(line, p) {
+				return
 			}
 		}
-		if err == io.EOF {
-			return nil
+		var rec record
+		if json.Unmarshal(line, &rec) == nil {
+			fn(&rec)
 		}
-		if err != nil {
-			return err
-		}
-	}
+	})
 }
 
-func hasAnyPrefix(b []byte, ps [][]byte) bool {
-	for _, p := range ps {
-		if bytes.HasPrefix(b, p) {
-			return true
-		}
+// Sessions は Root 以下の全セッションを要約する。サブエージェントの
+// (<session-id>/subagents/*.jsonl) は対象外。
+func (src *Source) Sessions() ([]*history.Session, error) {
+	if _, err := os.Stat(src.Root); errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
 	}
-	return false
-}
-
-// DefaultRoot は Claude Code のセッション保存先。CLAUDE_CONFIG_DIR を尊重する。
-func DefaultRoot() string {
-	if d := os.Getenv("CLAUDE_CONFIG_DIR"); d != "" {
-		return filepath.Join(d, "projects")
-	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".claude", "projects")
-}
-
-// LoadProjects は root 以下の全セッションを要約する。サブエージェントの
-// (<session-id>/subagents/*.jsonl) は対象外。新しい順に並べて返す。
-func LoadProjects(root string) ([]*Project, error) {
-	files, err := filepath.Glob(filepath.Join(root, "*", "*.jsonl"))
+	files, err := filepath.Glob(filepath.Join(src.Root, "*", "*.jsonl"))
 	if err != nil {
 		return nil, err
 	}
-	sessions := make([]*Session, len(files))
+	sessions := make([]*history.Session, len(files))
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, runtime.NumCPU())
 	for i, f := range files {
-		wg.Add(1)
 		sem <- struct{}{}
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			defer func() { <-sem }()
-			s, err := summarize(f)
+			s, err := src.summarize(f)
 			if err == nil && s.Prompts > 0 {
 				sessions[i] = s
 			}
-		}()
+		})
 	}
 	wg.Wait()
-
-	byDir := map[string]*Project{}
-	var projects []*Project
+	out := sessions[:0]
 	for _, s := range sessions {
-		if s == nil {
-			continue
-		}
-		dir := filepath.Base(filepath.Dir(s.File))
-		p := byDir[dir]
-		if p == nil {
-			p = &Project{Dir: dir, Path: dir}
-			byDir[dir] = p
-			projects = append(projects, p)
-		}
-		p.Sessions = append(p.Sessions, s)
-		if s.End.After(p.Last) {
-			p.Last = s.End
-			if s.Cwd != "" {
-				p.Path = s.Cwd
-			}
+		if s != nil {
+			out = append(out, s)
 		}
 	}
-	for _, p := range projects {
-		sort.Slice(p.Sessions, func(i, j int) bool { return p.Sessions[i].End.After(p.Sessions[j].End) })
-	}
-	sort.Slice(projects, func(i, j int) bool { return projects[i].Last.After(projects[j].Last) })
-	return projects, nil
+	return out, nil
 }
 
-func summarize(file string) (*Session, error) {
+func (src *Source) summarize(file string) (*history.Session, error) {
 	f, err := os.Open(file)
 	if err != nil {
 		return nil, err
@@ -205,10 +160,11 @@ func summarize(file string) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Session{
-		ID:   strings.TrimSuffix(filepath.Base(file), ".jsonl"),
-		File: file,
-		Size: st.Size(),
+	s := &history.Session{
+		Source: src,
+		ID:     strings.TrimSuffix(filepath.Base(file), ".jsonl"),
+		File:   file,
+		Size:   st.Size(),
 	}
 	var aiTitle, customTitle, agentName string
 	err = eachRecord(f, func(r *record) {
@@ -242,7 +198,7 @@ func summarize(file string) (*Session, error) {
 			}
 		}
 	})
-	s.Title = firstNonEmpty(customTitle, aiTitle, agentName, oneLine(s.FirstPrompt, 80), s.ID)
+	s.Title = history.FirstNonEmpty(customTitle, aiTitle, agentName, history.OneLine(s.FirstPrompt, 80), s.ID)
 	return s, err
 }
 
@@ -289,14 +245,14 @@ func userText(raw json.RawMessage) (text string, hasToolResult bool) {
 	return strings.Join(parts, "\n"), hasToolResult
 }
 
-// LoadEntries は会話ビュー用にセッションを読み込む。
-func LoadEntries(file string) ([]Entry, error) {
-	f, err := os.Open(file)
+// Entries は会話ビュー用にセッションを読み込む。
+func (src *Source) Entries(s *history.Session) ([]history.Entry, error) {
+	f, err := os.Open(s.File)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	var entries []Entry
+	var entries []history.Entry
 	toolIndex := map[string]int{} // tool_use_id -> entries の位置
 	err = eachRecord(f, func(r *record) {
 		if r.IsSidechain {
@@ -305,11 +261,11 @@ func LoadEntries(file string) ([]Entry, error) {
 		switch r.Type {
 		case "attachment":
 			if r.Attachment != nil && r.Attachment.Type == "queued_command" && r.Attachment.Prompt != "" {
-				entries = append(entries, Entry{Kind: KindUser, Time: r.Timestamp, Text: r.Attachment.Prompt, Queued: true})
+				entries = append(entries, history.Entry{Kind: history.KindUser, Time: r.Timestamp, Text: r.Attachment.Prompt, Queued: true})
 			}
 		case "system":
 			if r.Subtype == "local_command" && r.Content != "" {
-				entries = append(entries, Entry{Kind: KindNotice, Time: r.Timestamp, Text: r.Content})
+				entries = append(entries, history.Entry{Kind: history.KindNotice, Time: r.Timestamp, Text: r.Content})
 			}
 		case "user":
 			if r.IsMeta || r.Message == nil {
@@ -317,7 +273,7 @@ func LoadEntries(file string) ([]Entry, error) {
 			}
 			if r.IsCompactSummary {
 				text, _ := userText(r.Message.Content)
-				entries = append(entries, Entry{Kind: KindSummary, Time: r.Timestamp, Text: text})
+				entries = append(entries, history.Entry{Kind: history.KindSummary, Time: r.Timestamp, Text: text})
 				return
 			}
 			var blocks []block
@@ -332,15 +288,15 @@ func LoadEntries(file string) ([]Entry, error) {
 					}
 				}
 			}
-			text, hasToolResult := userText(r.Message.Content)
-			if text == "" || hasToolResult && strings.TrimSpace(text) == "" {
+			text, _ := userText(r.Message.Content)
+			if strings.TrimSpace(text) == "" {
 				return
 			}
-			kind := KindUser
+			kind := history.KindUser
 			if _, ok := humanPrompt(r); !ok {
-				kind = KindNotice
+				kind = history.KindNotice
 			}
-			entries = append(entries, Entry{Kind: kind, Time: r.Timestamp, Text: text})
+			entries = append(entries, history.Entry{Kind: kind, Time: r.Timestamp, Text: text})
 		case "assistant":
 			if r.Message == nil {
 				return
@@ -353,23 +309,21 @@ func LoadEntries(file string) ([]Entry, error) {
 				switch b.Type {
 				case "text":
 					if strings.TrimSpace(b.Text) != "" {
-						entries = append(entries, Entry{Kind: KindAssistant, Time: r.Timestamp, Text: b.Text})
+						entries = append(entries, history.Entry{Kind: history.KindAssistant, Time: r.Timestamp, Text: b.Text})
 					}
 				case "thinking":
 					if strings.TrimSpace(b.Thinking) != "" {
-						entries = append(entries, Entry{Kind: KindThinking, Time: r.Timestamp, Text: b.Thinking})
+						entries = append(entries, history.Entry{Kind: history.KindThinking, Time: r.Timestamp, Text: b.Thinking})
 					}
 				case "tool_use":
 					toolIndex[b.ID] = len(entries)
-					entries = append(entries, Entry{Kind: KindTool, Time: r.Timestamp, Tool: b.Name, Text: toolInputSummary(b.Input)})
+					entries = append(entries, history.Entry{Kind: history.KindTool, Time: r.Timestamp, Tool: b.Name, Text: toolInputSummary(b.Input)})
 				}
 			}
 		}
 	})
 	return entries, err
 }
-
-const maxResult = 4000
 
 func toolResultText(raw json.RawMessage) string {
 	var s string
@@ -388,10 +342,7 @@ func toolResultText(raw json.RawMessage) string {
 			s = strings.Join(parts, "\n")
 		}
 	}
-	if len(s) > maxResult {
-		s = truncateUTF8(s, maxResult) + fmt.Sprintf("\n… (%d bytes more)", len(s)-maxResult)
-	}
-	return s
+	return history.TruncateResult(s)
 }
 
 // toolInputSummary はツール呼び出しを 1〜数行で表す。
@@ -407,42 +358,13 @@ func toolInputSummary(raw json.RawMessage) string {
 	}
 	for _, k := range []string{"command", "file_path", "path", "pattern", "url", "query", "skill", "prompt"} {
 		if v := str(k); v != "" {
-			lines = append(lines, truncateUTF8(v, 600))
+			lines = append(lines, history.Truncate(v, 600))
 			break
 		}
 	}
 	if len(lines) == 0 {
 		b, _ := json.Marshal(in)
-		lines = append(lines, truncateUTF8(string(b), 300))
+		lines = append(lines, history.Truncate(string(b), 300))
 	}
 	return strings.Join(lines, "\n")
-}
-
-func truncateUTF8(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	for n > 0 && !utf8RuneStart(s[n]) {
-		n--
-	}
-	return s[:n]
-}
-
-func utf8RuneStart(b byte) bool { return b&0xC0 != 0x80 }
-
-func oneLine(s string, n int) string {
-	s = strings.Join(strings.Fields(s), " ")
-	if r := []rune(s); len(r) > n {
-		return string(r[:n]) + "…"
-	}
-	return s
-}
-
-func firstNonEmpty(ss ...string) string {
-	for _, s := range ss {
-		if strings.TrimSpace(s) != "" {
-			return s
-		}
-	}
-	return ""
 }

@@ -1,8 +1,12 @@
-// cc-history: Claude Code の過去のセッション (対話履歴) を一覧して読むビューア。
+// agent-history: コーディングエージェント (Claude Code, Codex, ...) の過去のセッションを
+// 一覧して読むビューア。
 //
-//	go run ./apps/cc-history            # ~/.claude/projects を読む
-//	go run ./apps/cc-history -root DIR  # 別の場所を読む
-//	go tool mygo dev apps/cc-history    # live reload で開発
+//	go run ./apps/agent-history
+//	go run ./apps/agent-history -claude-root DIR
+//	go tool mygo dev apps/agent-history    # live reload で開発
+//
+// 取得元は internal/history.Source を実装したパッケージ。新しいエージェントに
+// 対応するときは internal/<agent> を作り、sources() に足す。
 package main
 
 import (
@@ -17,29 +21,34 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
+
+	"github.com/podhmo/mygo-sandbox/apps/agent-history/internal/claudecode"
+	"github.com/podhmo/mygo-sandbox/apps/agent-history/internal/history"
 )
 
 // row はサイドバーのリストの 1 行。プロジェクトの見出しかセッション。
 type row struct {
-	project *Project
-	session *Session
+	project *history.Project
+	session *history.Session
 }
 
 type app struct {
-	root     string
-	projects []*Project
+	sources  []history.Source
+	projects []*history.Project
 	loading  bool
 	loadErr  error
 
 	query    string
+	agent    int // 0: すべて, i: sources[i-1] だけ
 	rows     []row
+	nRows    int // rows のうちセッションの数
 	list     ui.ListState
 	selected int
 	sidebarW float32
 
-	current        *Session
-	entries        []Entry
-	open           []bool // KindTool などの開閉状態 (entries と同じ長さ)
+	current        *history.Session
+	entries        []history.Entry
+	open           []bool // 折りたたみの開閉状態 (entries と同じ長さ)
 	entriesLoading bool
 	entriesErr     error
 	convo          ui.ListState
@@ -50,20 +59,19 @@ type app struct {
 	status         string
 
 	// 非同期処理と副作用。main で実装を入れ、テストでは差し替える。
-	loadSessions func()
-	loadEntries  func(*Session)
-	copyText     func(string)
+	loadEntries func(*history.Session)
+	copyText    func(string)
 }
 
-func newApp(root string) *app {
-	a := &app{root: root, selected: -1, sidebarW: 340}
+func newApp(sources []history.Source) *app {
+	a := &app{sources: sources, selected: -1, sidebarW: 340}
 	a.list.Selected = &a.selected
 	a.list.Header = func(i int) bool { return a.rows[i].project != nil }
 	a.list.Key = func(i int) any {
 		if r := a.rows[i]; r.project != nil {
-			return "p:" + r.project.Dir
+			return "p:" + r.project.Path
 		} else {
-			return "s:" + r.session.ID
+			return "s:" + r.session.Source.ID() + ":" + r.session.ID
 		}
 	}
 	a.list.Label = func(i int) string {
@@ -77,7 +85,7 @@ func newApp(root string) *app {
 
 // --- 状態の更新 ---
 
-func (a *app) setProjects(ps []*Project, err error) {
+func (a *app) setProjects(ps []*history.Project, err error) {
 	a.loading = false
 	a.projects, a.loadErr = ps, err
 	a.filter()
@@ -85,15 +93,23 @@ func (a *app) setProjects(ps []*Project, err error) {
 
 func (a *app) filter() {
 	q := strings.ToLower(strings.TrimSpace(a.query))
-	var cur *Session
+	var only history.Source
+	if a.agent > 0 && a.agent <= len(a.sources) {
+		only = a.sources[a.agent-1]
+	}
+	var cur *history.Session
 	if a.selected >= 0 && a.selected < len(a.rows) {
 		cur = a.rows[a.selected].session
 	}
 	a.rows = a.rows[:0]
+	a.nRows = 0
 	a.selected = -1
 	for _, p := range a.projects {
 		head := len(a.rows)
 		for _, s := range p.Sessions {
+			if only != nil && s.Source != only {
+				continue
+			}
 			if q != "" && !strings.Contains(strings.ToLower(s.Title+"\n"+s.FirstPrompt+"\n"+p.Path), q) {
 				continue
 			}
@@ -104,22 +120,24 @@ func (a *app) filter() {
 				a.selected = len(a.rows)
 			}
 			a.rows = append(a.rows, row{session: s})
+			a.nRows++
 		}
 	}
 }
 
-func (a *app) choose(s *Session) {
+func (a *app) choose(s *history.Session) {
 	if s == a.current {
 		return
 	}
 	a.current = s
 	a.entries, a.open, a.shown, a.entriesErr = nil, nil, nil, nil
 	a.entriesLoading = true
+	a.status = ""
 	a.convo.ScrollTo(0, ui.Start)
 	a.loadEntries(s)
 }
 
-func (a *app) setEntries(s *Session, es []Entry, err error) {
+func (a *app) setEntries(s *history.Session, es []history.Entry, err error) {
 	if s != a.current {
 		return // 読み込み中に別のセッションが選ばれた
 	}
@@ -132,7 +150,7 @@ func (a *app) setEntries(s *Session, es []Entry, err error) {
 func (a *app) refreshShown() {
 	a.shown = a.shown[:0]
 	for i, e := range a.entries {
-		if e.Kind == KindTool && !a.showTools || e.Kind == KindThinking && !a.showThinking {
+		if e.Kind == history.KindTool && !a.showTools || e.Kind == history.KindThinking && !a.showThinking {
 			continue
 		}
 		a.shown = append(a.shown, i)
@@ -152,10 +170,13 @@ func (a *app) sidebar(c *ui.Context) {
 			if ui.SearchField(c.Key("search"), &a.query).Placeholder("Search sessions").Label("Search sessions").Changed() {
 				a.filter()
 			}
-			n := 0
-			for _, r := range a.rows {
-				if r.session != nil {
-					n++
+			if len(a.sources) > 1 {
+				labels := []string{"All"}
+				for _, s := range a.sources {
+					labels = append(labels, s.Name())
+				}
+				if ui.Segmented(c.Key("agent"), &a.agent, labels...).Label("Agent").Changed() {
+					a.filter()
 				}
 			}
 			switch {
@@ -167,7 +188,7 @@ func (a *app) sidebar(c *ui.Context) {
 			case a.loadErr != nil:
 				ui.Text(c, a.loadErr.Error()).FontSize(12).TextColor(t.Danger)
 			default:
-				ui.Text(c, plural(n, "session")).FontSize(12).TextColor(t.TextMuted)
+				ui.Text(c, plural(a.nRows, "session")).FontSize(12).TextColor(t.TextMuted)
 			}
 		})
 		ui.List(c.Key("sessions"), &a.list, len(a.rows), func(i int) {
@@ -185,7 +206,11 @@ func (a *app) sidebar(c *ui.Context) {
 			}
 			ui.Column(c).Padding(6, 10).Gap(2).Children(func() {
 				ui.Text(c, s.Title).MaxLines(2)
-				ui.Text(c, fmt.Sprintf("%s · %s", s.End.Local().Format("2006-01-02 15:04"), plural(s.Prompts, "prompt"))).FontSize(11).TextColor(muted)
+				meta := fmt.Sprintf("%s · %s", s.End.Local().Format("2006-01-02 15:04"), plural(s.Prompts, "prompt"))
+				if len(a.sources) > 1 {
+					meta = s.Source.Name() + " · " + meta
+				}
+				ui.Text(c, meta).FontSize(11).TextColor(muted)
 			})
 		}).Grow(1).Children(func() {
 			if !a.loading && len(a.rows) == 0 {
@@ -212,16 +237,18 @@ func (a *app) conversation(c *ui.Context) {
 		// ヘッダー
 		ui.Column(c).Padding(12, 16).Gap(4).Children(func() {
 			ui.Text(c, s.Title).FontSize(17).Bold().Selectable()
-			meta := shortPath(s.Cwd)
+			meta := s.Source.Name() + " · " + shortPath(s.Cwd)
 			if s.GitBranch != "" {
 				meta += " · " + s.GitBranch
 			}
 			meta += fmt.Sprintf(" · %s – %s · %s · %s", s.Start.Local().Format("2006-01-02 15:04"), s.End.Local().Format("15:04"), plural(s.Prompts, "prompt"), humanSize(s.Size))
 			ui.Text(c, meta).FontSize(12).TextColor(t.TextMuted).Selectable()
 			ui.Row(c).Gap(8).Children(func() {
-				if ui.Button(c.Key("copy-resume"), "Copy resume command").Clicked() {
-					a.copyText(resumeCommand(s))
-					a.status = "Copied: " + resumeCommand(s)
+				if cmd := s.Source.ResumeCommand(s); cmd != "" {
+					if ui.Button(c.Key("copy-resume"), "Copy resume command").Clicked() {
+						a.copyText(cmd)
+						a.status = "Copied: " + cmd
+					}
 				}
 				if ui.Button(c.Key("copy-id"), "Copy session ID").Clicked() {
 					a.copyText(s.ID)
@@ -247,19 +274,19 @@ func (a *app) conversation(c *ui.Context) {
 		case a.entriesErr != nil:
 			ui.Text(c, a.entriesErr.Error()).TextColor(t.Danger).Padding(16)
 		default:
-			ui.List(c.Key("convo:"+s.ID), &a.convo, len(a.shown), func(i int) {
-				a.entry(c, a.shown[i])
+			ui.List(c.Key("convo:"+s.Source.ID()+":"+s.ID), &a.convo, len(a.shown), func(i int) {
+				a.entry(c, s, a.shown[i])
 			}).Grow(1).Padding(12, 16).Gap(10)
 		}
 	})
 }
 
-func (a *app) entry(c *ui.Context, i int) {
+func (a *app) entry(c *ui.Context, s *history.Session, i int) {
 	t := c.Theme()
 	e := &a.entries[i]
 	stamp := e.Time.Local().Format("15:04:05")
 	switch e.Kind {
-	case KindUser:
+	case history.KindUser:
 		label := "You"
 		if e.Queued {
 			label = "You (while working)"
@@ -268,17 +295,17 @@ func (a *app) entry(c *ui.Context, i int) {
 			ui.Text(c, label+" · "+stamp).FontSize(11).Bold().TextColor(t.Accent)
 			ui.Text(c, e.Text).Selectable()
 		})
-	case KindAssistant:
+	case history.KindAssistant:
 		ui.Column(c).Gap(4).Padding(0, 4).Children(func() {
-			ui.Text(c, "Claude · "+stamp).FontSize(11).Bold().TextColor(t.TextMuted)
+			ui.Text(c, s.Source.AssistantName()+" · "+stamp).FontSize(11).Bold().TextColor(t.TextMuted)
 			markdown.View(c, e.Text, &a.md)
 		})
-	case KindTool:
-		title := "⚙ " + e.Tool + "  " + oneLine(e.Text, 90)
+	case history.KindTool:
+		icon := "⚙ "
 		if e.IsError {
-			title = "⚠ " + e.Tool + "  " + oneLine(e.Text, 90)
+			icon = "⚠ "
 		}
-		ui.Collapsible(c.Key(i), title, &a.open[i], func() {
+		ui.Collapsible(c.Key(i), icon+e.Tool+"  "+history.OneLine(e.Text, 90), &a.open[i], func() {
 			ui.Column(c).Gap(6).Padding(6, 0, 4, 20).Children(func() {
 				ui.Text(c, e.Text).Font("monospace").FontSize(12).Selectable()
 				if e.Result != "" {
@@ -290,27 +317,20 @@ func (a *app) entry(c *ui.Context, i int) {
 				}
 			})
 		}).TextColor(t.TextMuted)
-	case KindThinking:
+	case history.KindThinking:
 		ui.Collapsible(c.Key(i), "💭 Thinking", &a.open[i], func() {
 			ui.Text(c, e.Text).FontSize(12).TextColor(t.TextMuted).Selectable().Padding(4, 0, 4, 20)
 		})
-	case KindSummary:
-		ui.Collapsible(c.Key(i), "📝 Compacted summary of the earlier conversation", &a.open[i], func() {
+	case history.KindSummary:
+		ui.Collapsible(c.Key(i), "📝 Summary of the earlier conversation", &a.open[i], func() {
 			ui.Text(c, e.Text).FontSize(12).Selectable().Padding(4, 0, 4, 20)
 		})
-	case KindNotice:
-		ui.Text(c, oneLine(e.Text, 200)).FontSize(11).TextColor(t.TextMuted)
+	case history.KindNotice:
+		ui.Text(c, history.OneLine(e.Text, 200)).FontSize(11).TextColor(t.TextMuted)
 	}
 }
 
 // --- helpers ---
-
-func resumeCommand(s *Session) string {
-	if s.Cwd == "" {
-		return "claude --resume " + s.ID
-	}
-	return fmt.Sprintf("cd %q && claude --resume %s", s.Cwd, s.ID)
-}
 
 func shortPath(p string) string {
 	if home, _ := os.UserHomeDir(); home != "" && strings.HasPrefix(p, home+string(filepath.Separator)) {
@@ -336,36 +356,46 @@ func humanSize(n int64) string {
 	return fmt.Sprintf("%d B", n)
 }
 
+// options はコマンドラインの指定。取得元を足すときはここに保存先のフラグを足す。
+type options struct {
+	claudeRoot string
+}
+
+// sources は表示する取得元の一覧。新しいエージェントはここに足す。
+func sources(opt options) []history.Source {
+	return []history.Source{
+		claudecode.New(opt.claudeRoot),
+	}
+}
+
 func main() {
-	root := flag.String("root", DefaultRoot(), "directory of Claude Code projects")
+	var opt options
+	flag.StringVar(&opt.claudeRoot, "claude-root", claudecode.DefaultRoot(), "directory of Claude Code projects")
 	flag.Parse()
 
-	a := newApp(*root)
+	a := newApp(sources(opt))
 	a.loading = true
 	a.copyText = func(s string) { mygo.Clipboard.WriteText(s) }
 	mygo.App.WhenReady(func() {
 		var win *mygo.Window
-		a.loadSessions = func() {
+		a.loadEntries = func(s *history.Session) {
 			go func() {
-				start := time.Now()
-				ps, err := LoadProjects(a.root)
-				log.Printf("loaded %d projects in %s", len(ps), time.Since(start))
-				win.Update(func() { a.setProjects(ps, err) })
-			}()
-		}
-		a.loadEntries = func(s *Session) {
-			go func() {
-				es, err := LoadEntries(s.File)
+				es, err := s.Source.Entries(s)
 				win.Update(func() { a.setEntries(s, es, err) })
 			}()
 		}
 		win = mygo.NewWindow(mygo.WindowOptions{
-			Title:   "Claude Code History",
+			Title:   "Agent History",
 			Width:   1100,
 			Height:  760,
 			Content: ui.View(a.view),
 		})
-		a.loadSessions()
+		go func() {
+			start := time.Now()
+			ps, err := history.Load(a.sources)
+			log.Printf("loaded %d projects in %s", len(ps), time.Since(start))
+			win.Update(func() { a.setProjects(ps, err) })
+		}()
 	})
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)

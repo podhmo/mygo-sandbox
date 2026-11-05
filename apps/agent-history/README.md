@@ -1,0 +1,53 @@
+# agent-history
+
+コーディングエージェントの過去のセッション（対話履歴）を一覧して読む、[mygo](https://mygo.egoist.dev/) 製のデスクトップアプリ。
+
+```sh
+go run ./apps/agent-history                     # 普通に起動
+go tool mygo dev apps/agent-history             # live reload で開発
+go tool mygo build apps/agent-history           # .app / .dmg を作る
+go test ./apps/agent-history/...                # ウィンドウ無しでテスト
+```
+
+対応している取得元:
+
+| 取得元 | パッケージ | 保存先 | 形式の調査メモ |
+|---|---|---|---|
+| Claude Code | `internal/claudecode` | `~/.claude/projects`（`-claude-root` で変更） | [claude-code-session-files.md](../../docs/sketch/ja/claude-code-session-files.md) |
+
+## 構成
+
+```
+apps/agent-history/
+  main.go                 UI（mygo native UI）。history の型だけを見る
+  main_test.go            UI のテスト（偽の Source を使う）
+  internal/history/       取得元によらない型: Source, Session, Entry, Project / 共通の小道具
+  internal/claudecode/    Claude Code の Source 実装と testdata
+```
+
+- UI は `history.Source` のインターフェースだけに依存する。セッションの一覧（`Sessions`）、会話（`Entries`）、再開コマンド（`ResumeCommand`）を Source が返す。
+- プロジェクトは**作業ディレクトリ（`Session.Cwd`）でまとめる**。取得元が違っても同じリポジトリのセッションは同じ見出しの下に並ぶ。
+- 取得元が 2 つ以上あると、サイドバーに取得元で絞り込む切り替え（All / Claude Code / ...）が出る。
+
+## 取得元を追加する手順
+
+1. 保存形式を調べて `docs/sketch/ja/<agent>-session-files.md` にまとめる（`claude-code-session-files.md` と同じ粒度で）。
+2. `internal/<agent>/` を作り、`history.Source` を実装する。
+   - `Sessions()`: 全セッションの要約。**人間の入力が無いセッションは含めない**。保存先が無ければ `nil, nil`。ファイル数が多いので並列に読む（`claudecode` 参照）
+   - `Entries(s)`: 会話を時系列で。種類の対応づけは下の表
+   - `ResumeCommand(s)`: 再開コマンド。無ければ `""`（ボタンが出なくなる）
+   - JSON Lines を読むときは `history.EachLine` を使う（1 行が数 MB になることがあるため）。ツールの結果は `history.TruncateResult` で切り詰める
+3. `internal/<agent>/testdata/` に**実データを元に小さく作った** fixture を置き、`<agent>_test.go` を書く（個人情報や秘密を含めないこと）。
+4. `main.go` の `options` に保存先のフラグを、`sources()` に `<agent>.New(...)` を足す。
+5. この README の表を更新する。
+
+`history.Entry` の種類:
+
+| Kind | 用途 | 表示 |
+|---|---|---|
+| `KindUser` | 人間の入力。作業中に送られたものは `Queued: true` | 枠付きで "You" |
+| `KindAssistant` | アシスタントの返答 | Markdown。ラベルは `AssistantName()` |
+| `KindThinking` | 推論・推論の要約 | 既定で非表示、折りたたみ |
+| `KindTool` | ツール呼び出し（`Tool`, `Text` = 入力の要約, `Result`, `IsError`） | 既定で非表示、折りたたみ |
+| `KindNotice` | 中断・通知・システムからの補足 | 小さい灰色の 1 行 |
+| `KindSummary` | compact などで前半を要約したもの | 折りたたみ |
