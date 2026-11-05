@@ -15,6 +15,10 @@ go test ./apps/agent-history/...                # ウィンドウ無しでテス
 |---|---|---|---|
 | Claude Code | `internal/claudecode` | `~/.claude/projects`（`-claude-root` で変更） | [claude-code-session-files.md](../../docs/sketch/ja/claude-code-session-files.md) |
 | Codex | `internal/codex` | `$CODEX_HOME` または `~/.codex`（`-codex-root` で変更） | [codex-session-files.md](../../docs/sketch/ja/codex-session-files.md) |
+| Devin | `internal/devin` | `$XDG_DATA_HOME/devin` または `~/.local/share/devin` の `cli/sessions.db`（`-devin-root` で変更） | [devin-session-files.md](../../docs/sketch/ja/devin-session-files.md) |
+| OpenCode | `internal/opencode` | `$XDG_DATA_HOME/opencode` または `~/.local/share/opencode` の `opencode.db`（`-opencode-root` で変更） | [opencode-session-files.md](../../docs/sketch/ja/opencode-session-files.md) |
+
+Devin と OpenCode は SQLite の DB に履歴を持つ。実行中でも読めるよう読み取り専用（`mode=ro`）で開き、書き込みはしない。
 
 ## マークダウンとしてコピー
 
@@ -53,6 +57,9 @@ apps/agent-history/
   internal/history/       取得元によらない型: Source, Session, Entry, Project / 共通の小道具
   internal/claudecode/    Claude Code の Source 実装と testdata
   internal/codex/         Codex の Source 実装と testdata
+  internal/devin/         Devin の Source 実装（sessions.db を読む）
+  internal/opencode/      OpenCode の Source 実装（opencode.db を読む）
+  internal/sqlitedb/      SQLite を読み取り専用で開く小道具（modernc.org/sqlite, cgo 不要）。sqlitetest はテスト用の DB 作成
   internal/redact/        表示用のマスキング
 ```
 
@@ -67,8 +74,8 @@ apps/agent-history/
    - `Sessions()`: 全セッションの要約。**人間の入力が無いセッションは含めない**。保存先が無ければ `nil, nil`。ファイル数が多いので並列に読む（`claudecode` 参照）
    - `Entries(s)`: 会話を時系列で。種類の対応づけは下の表
    - `ResumeCommand(s)`: 再開コマンド。無ければ `""`（ボタンが出なくなる）
-   - JSON Lines を読むときは `history.EachLine` を使う（1 行が数 MB になることがあるため）。ツールの結果は `history.TruncateResult` で切り詰める
-3. `internal/<agent>/testdata/` に**実データを元に小さく作った** fixture を置き、`<agent>_test.go` を書く（個人情報や秘密を含めないこと）。
+   - JSON Lines を読むときは `history.EachLine` を使う（1 行が数 MB になることがあるため）。SQLite は `sqlitedb.OpenReadOnly` で開く。ツールの結果は `history.TruncateResult` で切り詰める
+3. `internal/<agent>/testdata/` に**実データを元に小さく作った** fixture を置き、`<agent>_test.go` を書く（個人情報や秘密を含めないこと）。SQLite の場合はテストの中で `sqlitetest.Create` を使って DB を作る（バイナリを置かない）。
 4. `main.go` の `options` に保存先のフラグを、`sources()` に `<agent>.New(...)` を足す。
 5. この README の表を更新する。
 

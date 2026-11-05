@@ -24,7 +24,9 @@ import (
 
 	"github.com/podhmo/mygo-sandbox/apps/agent-history/internal/claudecode"
 	"github.com/podhmo/mygo-sandbox/apps/agent-history/internal/codex"
+	"github.com/podhmo/mygo-sandbox/apps/agent-history/internal/devin"
 	"github.com/podhmo/mygo-sandbox/apps/agent-history/internal/history"
+	"github.com/podhmo/mygo-sandbox/apps/agent-history/internal/opencode"
 	"github.com/podhmo/mygo-sandbox/apps/agent-history/internal/redact"
 )
 
@@ -450,6 +452,8 @@ func humanSize(n int64) string {
 type options struct {
 	claudeRoot string
 	codexRoot  string
+	devinRoot  string
+	ocRoot     string
 	mask       bool
 	maskWords  string
 }
@@ -459,6 +463,8 @@ func sources(opt options) []history.Source {
 	return []history.Source{
 		claudecode.New(opt.claudeRoot),
 		codex.New(opt.codexRoot),
+		devin.New(opt.devinRoot),
+		opencode.New(opt.ocRoot),
 	}
 }
 
@@ -466,6 +472,8 @@ func main() {
 	var opt options
 	flag.StringVar(&opt.claudeRoot, "claude-root", claudecode.DefaultRoot(), "directory of Claude Code projects")
 	flag.StringVar(&opt.codexRoot, "codex-root", codex.DefaultRoot(), "Codex home directory (contains sessions and archived_sessions)")
+	flag.StringVar(&opt.devinRoot, "devin-root", devin.DefaultRoot(), "Devin data directory (contains cli/sessions.db)")
+	flag.StringVar(&opt.ocRoot, "opencode-root", opencode.DefaultRoot(), "OpenCode data directory (contains opencode.db)")
 	flag.BoolVar(&opt.mask, "mask", true, "mask credentials and private information on start (toggle in the window)")
 	flag.StringVar(&opt.maskWords, "mask-words", "", "comma-separated extra words to mask, such as a GitHub username or company name")
 	flag.Parse()

@@ -48,7 +48,7 @@ id, working_directory, backend_type, model, agent_mode,
 created_at INTEGER,          -- unix 秒
 last_activity_at INTEGER,    -- unix 秒
 title,                       -- 自動生成 or /rename。手元は日本語タイトル
-main_chain_id INTEGER,       -- message_nodes.row_id。現行チェーンの末尾
+main_chain_id INTEGER,       -- 現行チェーンの末尾の message_nodes.node_id（row_id ではない。後述）
 shell_last_seen_index, cogs_json, workspace_dirs, hidden, metadata
 ```
 
@@ -61,7 +61,9 @@ shell_last_seen_index, cogs_json, workspace_dirs, hidden, metadata
 `chat_message` は 1 メッセージの JSON。`parent_node_id` で親を指す**木（正確には森）**だが、単純な会話ツリーではない:
 
 - 同じ `message_id` のメッセージが複数ノードに重複して存在する。観察では**リクエストのたびにコンテキスト全体が別チェーンとして書き込まれる**（先頭数ノードだけのチェーンが多数ある）。
-- そのため `node_id` 順に読むと同じ発言が何度も出る。**正規の会話は `sessions.main_chain_id`（`row_id`）から `parent_node_id` を遡って復元する**。遡ると system → user → assistant → tool … と時系列の 1 本の列になることを確認した。
+- そのため `node_id` 順に読むと同じ発言が何度も出る。**正規の会話は `sessions.main_chain_id`（`node_id`）から `parent_node_id` を遡って復元する**。遡ると system → user → assistant → tool … と時系列の 1 本の列になることを確認した。
+  - 訂正（実装時に確認）: `main_chain_id` は `row_id` ではなく**セッション内の `node_id`**。手元の全セッションで `main_chain_id = max(node_id)` だった。`row_id` は全セッション通しの連番なので、`row_id` として引くと別セッションのノードに当たる。
+- **compaction でチェーンが切れる**。圧縮後の主チェーンは system prefix → 要約（`You are continuing work from a previous conversation thread…` の system メッセージ）から始まり、圧縮前の会話は含まない。要約ノードの `message_nodes.metadata.summarized_from` が**圧縮前のチェーン末尾の `node_id`** を指すので、そこから遡ると前半の会話が取れる（手元の例: 主チェーンの人間の入力 13 件 + 要約元チェーン 17 件 = `prompt_history` の 30 件と一致）。agent-history はこれを再帰的に展開している。
 - サブエージェントの会話も同じ `message_nodes` に別チェーンで入っており、`subagent_heads.chain_node_id` が各チェーンの先頭（`node_id` として引ける）を指す。
 - 分岐は rewind/revert（`/revert`）でも起きる。チェーンを遡る方式なら捨てた分岐は自然に除外できる。
 
