@@ -66,6 +66,28 @@ go tool mygo build examples/counter    # .app / .dmg を作る
 15. **ターミナルから `screencapture` するとウィンドウが写らない**（壁紙とメニューバーだけになる）。ターミナルに画面収録の権限が無いため。自動で見た目を確認したいときは、`ui.NewTester` + `tt.Image()` のスナップショットを使うのが手軽で確実。
 16. 配布まで考えると、macOS では Developer ID による署名と公証（codesign）、Windows インストーラーには makensis、Windows の署名には osslsigncode が別途必要（`mygo doctor` で確認できる）。
 
+## 応用: `apps/cc-history`（Claude Code の履歴ビューア）を作って分かったこと
+
+Claude Code の過去のセッションを一覧して読む GUI を mygo で作った（`go run ./apps/cc-history`）。セッションファイルの形式は [claude-code-session-files.md](./claude-code-session-files.md) を参照。
+
+使ったもの:
+
+- `ui.Split` … サイドバーと本文の 2 ペイン。幅は `*float32` で状態に持つ
+- `ui.List` + `ui.ListState` … 仮想化リスト。`Selected *int` で行の選択、`Header func(int) bool` でプロジェクト名の見出しを固定表示（見出し行は選択されない）、`Key` で行の同一性、`Label` でタイプして選ぶ・読み上げ
+- `ui.SearchField` + `Changed()` … 絞り込み
+- `ui/markdown` の `markdown.View(c, text, &opts)` … Claude の返答を Markdown で表示。毎フレーム文字列を渡しても、差分しか解析し直さない
+- `ui.Collapsible(c, label, &open, fn)` … ツール呼び出し・thinking・compact の要約を折りたたむ。開閉状態の `bool` は自分で持つ（ここではエントリと同じ長さの `[]bool`）
+- `Text(...).Selectable()` … 本文を選んでコピーできるようにする。`Font("monospace")` で等幅フォント
+- `mygo.Clipboard.WriteText` … 再開用コマンド（`cd ... && claude --resume <id>`）をコピー
+
+気づいたこと:
+
+- **読み込みは goroutine + `win.Update`** という examples/async の形がそのまま使えた。起動時に全セッションを集計し、セッションを選ぶたびにその会話を読み込む
+- 副作用（読み込み・クリップボード）を app の関数フィールドにしておくと、`ui.NewTester` のテストで同期実装に差し替えられる。テスト用のデータは `testdata/` に置いた
+- `ListState` には `Changed()` が無い（`List(...)` が返す Element の方にある）。今回は `selected` の値を毎フレーム見て、表示中のセッションと違えば読み込む形にした
+- リストの選択行はアクセント色の背景になるので、行内の補足テキストに `TextMuted` を使うと読みにくい。選択中は `t.AccentText` に切り替えた
+- 実データ（150 セッション）でも、一覧の構築は 0.25 秒程度、スクロールも引っかからない
+
 ## 未検証・次に試したいこと
 
 - Web page 版（Bun を入れて `bunx mygo-cli init`、`mygo.Bind` と生成される TS クライアント）

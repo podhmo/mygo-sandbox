@@ -1,0 +1,3 @@
+{"parentUuid":null,"isSidechain":false,"type":"user","message":{"role":"user","content":"README を直して"},"uuid":"u1","timestamp":"2026-11-02T01:00:00.000Z","origin":{"kind":"human"},"cwd":"/tmp/demo","sessionId":"22222222-0000-0000-0000-000000000002"}
+{"parentUuid":"u1","isSidechain":false,"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"直しました。"}]},"uuid":"a1","timestamp":"2026-11-02T01:00:02.000Z","sessionId":"22222222-0000-0000-0000-000000000002"}
+{"type":"custom-title","customTitle":"readme-fix","sessionId":"22222222-0000-0000-0000-000000000002"}
