@@ -216,3 +216,50 @@ func TestMasking(t *testing.T) {
 		t.Errorf("search on raw text: rows=%d", a.nRows)
 	}
 }
+
+func TestCopyMarkdown(t *testing.T) {
+	a, copied := newTestApp(t)
+	tt := ui.NewTester(a.view, 1000, 700)
+	if err := tt.Click("‹user› の設定を確認"); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		item     string
+		has, not []string
+	}{
+		{"Prompts only", []string{"## 1. You", "連絡先は ‹email› です"}, []string{"Beta ·", "bob@corp.co.jp"}},
+		{"Prompts and replies", []string{"## You", "連絡先は ‹email› です"}, []string{"API_KEY"}},
+	} {
+		if err := tt.Click("Copy as Markdown"); err != nil {
+			t.Fatal(err)
+		}
+		if err := tt.ChooseMenuItem(c.item); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		got := (*copied)[len(*copied)-1]
+		if !strings.HasPrefix(got, "# ‹user› の設定を確認\n") || !strings.Contains(got, "- Project: `~/work`") {
+			t.Errorf("%s: header: %q", c.item, got)
+		}
+		for _, h := range c.has {
+			if !strings.Contains(got, h) {
+				t.Errorf("%s: missing %q in %q", c.item, h, got)
+			}
+		}
+		for _, n := range c.not {
+			if strings.Contains(got, n) {
+				t.Errorf("%s: unexpected %q in %q", c.item, n, got)
+			}
+		}
+	}
+	if !strings.HasPrefix(a.status, "Copied Markdown (prompts and replies, masked") {
+		t.Errorf("status=%q", a.status)
+	}
+
+	// マスクを切ると元の内容
+	a.setMask(false)
+	a.copyMarkdown(a.current, history.PromptsOnly, "Prompts only")
+	if got := (*copied)[len(*copied)-1]; !strings.Contains(got, "bob@corp.co.jp") || !strings.Contains(got, "/Users/alice/work") {
+		t.Errorf("unmasked: %q", got)
+	}
+}

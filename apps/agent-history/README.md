@@ -16,6 +16,21 @@ go test ./apps/agent-history/...                # ウィンドウ無しでテス
 | Claude Code | `internal/claudecode` | `~/.claude/projects`（`-claude-root` で変更） | [claude-code-session-files.md](../../docs/sketch/ja/claude-code-session-files.md) |
 | Codex | `internal/codex` | `$CODEX_HOME` または `~/.codex`（`-codex-root` で変更） | [codex-session-files.md](../../docs/sketch/ja/codex-session-files.md) |
 
+## マークダウンとしてコピー
+
+会話ヘッダーの「Copy as Markdown」から、範囲を選んでクリップボードにコピーする。
+
+| 項目 | 含めるもの |
+|---|---|
+| Prompts only | 人間の入力だけ（番号付き） |
+| Prompts and replies | 入力とアシスタントの返答（続けて並ぶ返答は 1 つの見出しにまとめる） |
+| Prompts, replies and thinking | 上に加えて thinking（`<details>` で折りたたむ） |
+
+- 先頭にタイトル、エージェント、プロジェクト、ブランチ、日時、セッション ID を書く。
+- ツール呼び出し、補足（中断など）、compact の要約は含めない。画面の Tools / Thinking の切り替えには左右されない。
+- **マスクがオンなら、伏せた内容をコピーする**。
+- 変換は `history.Markdown`（`internal/history/markdown.go`）。
+
 ## マスキング
 
 認証情報・個人情報・環境を特定できる情報（ホームディレクトリ、ユーザー名、ホスト名など）を伏せて表示する。**既定でオン**で、サイドバーの `Mask` で切り替える。対象の定義は [agent-history-masking.md](../../docs/sketch/ja/agent-history-masking.md)。

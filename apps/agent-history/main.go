@@ -178,6 +178,36 @@ func (a *app) refreshShown() {
 	}
 }
 
+var markdownChoices = []struct {
+	label string
+	level history.MarkdownLevel
+}{
+	{"Prompts only", history.PromptsOnly},
+	{"Prompts and replies", history.PromptsAndReplies},
+	{"Prompts, replies and thinking", history.PromptsRepliesThink},
+}
+
+// copyMarkdown は会話をマークダウンにしてコピーする。マスクがオンなら伏せた内容をコピーする
+// (entries はマスク済みで読み込まれている)。表示の Tools / Thinking の切り替えには左右されない。
+func (a *app) copyMarkdown(s *history.Session, level history.MarkdownLevel, label string) {
+	md := history.Markdown(history.MarkdownMeta{
+		Title:         a.v(s.Title),
+		Agent:         s.Source.Name(),
+		AssistantName: s.Source.AssistantName(),
+		Project:       a.v(shortPath(s.Cwd)),
+		Branch:        a.v(s.GitBranch),
+		Start:         s.Start,
+		End:           s.End,
+		SessionID:     s.ID,
+	}, a.entries, level)
+	a.copyText(md)
+	masked := ""
+	if a.mask {
+		masked = ", masked"
+	}
+	a.status = fmt.Sprintf("Copied Markdown (%s%s, %d lines)", strings.ToLower(label), masked, strings.Count(md, "\n"))
+}
+
 // v は表示する文字列を、マスクがオンなら伏せて返す。サイドバーやヘッダーの短い文字列用。
 func (a *app) v(s string) string {
 	if !a.mask || s == "" {
@@ -307,6 +337,13 @@ func (a *app) conversation(c *ui.Context) {
 					a.copyText(s.ID)
 					a.status = "Copied: " + s.ID
 				}
+				ui.MenuButton(c.Key("copy-md"), "Copy as Markdown", func(m *ui.Menu) {
+					for _, opt := range markdownChoices {
+						if m.Item(opt.label).Disabled(a.entriesLoading).Chosen() {
+							a.copyMarkdown(s, opt.level, opt.label)
+						}
+					}
+				})
 				ui.Row(c).Grow(1)
 				if ui.Checkbox(c.Key("tools"), &a.showTools, "Tools").Changed() {
 					a.refreshShown()
