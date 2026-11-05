@@ -1,0 +1,4 @@
+.mygo/
+build/
+*.png.out
+dist/
