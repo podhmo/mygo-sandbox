@@ -7,6 +7,7 @@ package history
 
 import (
 	"errors"
+	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -81,7 +82,12 @@ func Load(sources []Source) ([]*Project, error) {
 	errs := make([]error, len(sources))
 	var wg sync.WaitGroup
 	for i, src := range sources {
-		wg.Go(func() { results[i], errs[i] = src.Sessions() })
+		wg.Go(func() {
+			results[i], errs[i] = src.Sessions()
+			if errs[i] != nil {
+				errs[i] = fmt.Errorf("%s: %w", src.Name(), errs[i]) // どの取得元の失敗か分かるように
+			}
+		})
 	}
 	wg.Wait()
 	var all []*Session
