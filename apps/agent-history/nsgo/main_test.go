@@ -87,6 +87,7 @@ func TestListAndSearch(t *testing.T) {
 	}
 	app.Press("id:agent-all")
 	app.WaitFor("text:3 sessions", time.Second)
+	app.Find("id:agent-alpha") // 広いサイドバーではセグメント
 }
 
 func TestKeyboard(t *testing.T) {
@@ -134,4 +135,22 @@ func findMaskedTitle(t *testing.T, app *nsgotest.App) string {
 	}
 	t.Fatalf("masked title not found: %q", app.Texts())
 	return ""
+}
+
+func TestNarrowSidebar(t *testing.T) {
+	// エージェントが 4 つ (+ All) あると 260pt には収まらない
+	srcs := append(fixtures(), &fakeSource{id: "gamma", name: "Gamma Agent", assistant: "Gamma"}, &fakeSource{id: "delta", name: "Delta Agent", assistant: "Delta"})
+	a := App{Sources: srcs, Redactor: redact.New(redact.Options{}), SidebarWidth: 260}
+	app := nsgotest.Start(t, a.Root, nsgotest.Size(1000, 700), nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop, Locale: "en-US"}))
+	app.WaitFor("text:3 sessions", 5*time.Second)
+	// 狭いとセグメントではなくドロップダウンになる
+	if app.Exists("id:agent-alpha") {
+		t.Fatal("segmented control should not be shown in a narrow sidebar")
+	}
+	app.Find("text:All (3)")
+	app.Press("id:agent")
+	app.Press("role:menuitem Alpha Agent (1)")
+	app.WaitFor("text:1 sessions", time.Second)
+	app.Find("text:Alpha Agent (1)")
+	app.Screenshot("narrow")
 }

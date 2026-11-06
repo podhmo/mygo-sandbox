@@ -39,6 +39,8 @@ type App struct {
 	Sources  []history.Source
 	Redactor *redact.Redactor
 	Mask     bool
+	// SidebarWidth はサイドバーの最初の幅。0 なら 340。
+	SidebarWidth core.Points
 }
 
 // Root はウィンドウの中身。nsgo の component は 1 回だけ実行され、
@@ -60,7 +62,11 @@ func (opt App) Root(cx *core.Scope) core.Node {
 	entriesLoading := core.NewSignal(cx, false)
 	status := core.NewSignal(cx, "")
 	sidebarOpen := core.NewSignal(cx, true)
-	sidebarWidth := core.NewSignal(cx, core.Points(340))
+	width := opt.SidebarWidth
+	if width == 0 {
+		width = 340
+	}
+	sidebarWidth := core.NewSignal(cx, width)
 
 	cache := map[string]string{}
 	v := func(s string) string { // 短い文字列を、マスクがオンなら伏せる
@@ -173,9 +179,40 @@ func (opt App) Root(cx *core.Scope) core.Node {
 			return n
 		}
 	}
+	// セグメントは狭いので短い AssistantName ("Claude")、ドロップダウンは Name ("Claude Code") を出す。
 	agents := []ui.Option[string]{{Value: "", Label: "All", Count: countOf(""), TestID: "agent-all"}}
+	names := []string{"All"}
 	for _, src := range opt.Sources {
-		agents = append(agents, ui.Option[string]{Value: src.ID(), Label: src.Name(), Count: countOf(src.ID()), TestID: "agent-" + src.ID()})
+		agents = append(agents, ui.Option[string]{Value: src.ID(), Label: src.AssistantName(), Count: countOf(src.ID()), TestID: "agent-" + src.ID()})
+		names = append(names, src.Name())
+	}
+
+	// セグメントは等幅に縮むので、エージェントが多いと狭いサイドバーで文字が重なる。
+	// 幅が足りないときはドロップダウン (ui.Select) に切り替える。
+	// セグメントは等幅なので、一番長いもの × 個数 で見積もる (13pt の文字 1 つ 7pt、件数の数字 1 つ 7pt、余白 24pt)。
+	needed := func() core.Points {
+		widest := 0
+		for _, o := range agents {
+			widest = max(widest, 7*len([]rune(o.Label))+7*len(fmt.Sprint(o.Count()))+24)
+		}
+		return core.Points(20 + widest*len(agents)) // + サイドバーの左右の余白
+	}
+	agentPicker := core.Show{
+		When: func() bool { return sidebarWidth.Get() >= needed() },
+		Then: func(*core.Scope) core.Node {
+			return ui.Segmented[string]{Options: agents, Value: agent.Get, OnChange: agent.Set, Small: true, Compact: true, Label: "Agent"}
+		},
+		// Select は Count を使わず Label も固定なので、件数が変わったら作り直す
+		Else: func(*core.Scope) core.Node {
+			return core.Dynamic(func(*core.Scope) core.Node {
+				opts := make([]ui.Option[string], len(agents))
+				for i, o := range agents {
+					opts[i] = ui.Option[string]{Value: o.Value, Label: fmt.Sprintf("%s (%d)", names[i], o.Count())}
+				}
+				return ui.Select[string]{TestID: "agent", Label: "Agent", Options: opts, Value: agent.Get, OnChange: agent.Set,
+					Style: core.Style{Width: core.Pct(100)}}
+			})
+		},
 	}
 
 	sessionRow := func(cx *core.Scope, r core.ListRow) core.Node {
@@ -211,7 +248,7 @@ func (opt App) Root(cx *core.Scope) core.Node {
 	sidebar := []core.Node{
 		core.View{Style: core.Style{Padding: core.Symmetric(8, 10), Gap: 8}, Children: []core.Node{
 			ui.Input{Input: base.Input{TestID: "search", Label: "Search sessions", Placeholder: "Search sessions", Value: query.Get, OnChange: query.Set}},
-			ui.Segmented[string]{Options: agents, Value: agent.Get, OnChange: agent.Set, Small: true, Compact: true, Label: "Agent"},
+			agentPicker,
 			ui.Checkbox{TestID: "mask", Text: "Mask private information", Checked: mask.Get,
 				OnChange: func(on bool) { mask.Set(on); status.Set(""); load() }},
 		}},

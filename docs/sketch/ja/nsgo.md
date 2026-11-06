@@ -104,7 +104,7 @@ go tool nsgo build -target macos_arm64 apps/agent-history/nsgo  # .app (16 MB, 4
 | `ui.Split(&w, ...)` | `ui.SidebarShell{Sidebar, SidebarFooter, Header, Actions, Content, Open, Width, ...}`。サイドバーの開閉ボタン、ドラッグでの幅変更、ヘッダーまで付く。gallery と同じ外枠 |
 | `ui.List` + `ui.ListState`（`Selected *int`） | `ui.List{Selection: ui.NewSelection(cx, false), Key, Row, RowLabel}`。選択中の行の色、**矢印キー・Home/End・ページキーでの移動** が付く。選択は key で持つ。選択の変化は `cx.Effect(func(){ selection.Keys() ... })` で拾って会話を読み込む |
 | `ui.SearchField(c, &a.query)` | `ui.Input{Input: base.Input{Value: query.Get, OnChange: query.Set, Placeholder}}`（`base.Input` を包む） |
-| `ui.Segmented`（エージェント選択） | `ui.Segmented[string]{Options: []ui.Option[string]{{Value, Label, Count}}, Value, OnChange, Small, Compact}`。`Count` で件数を横に出せる |
+| `ui.Segmented`（エージェント選択） | 幅が足りるときは `ui.Segmented[string]{Options: []ui.Option[string]{{Value, Label, Count}}, Value, OnChange, Small, Compact}`（`Count` で件数を横に出せる）、狭いときは `ui.Select[string]` に切り替える（下記 11） |
 | `ui.Checkbox` | `ui.Checkbox{Text, Checked, OnChange}` |
 | `markdown.View` | `ui.TextView{MarkdownFunc, Selectable: true}`（`textview.TextView` に ui の文字・色を当てたもの）。GitHub 風の Markdown、コードのハイライト（`highlight.New(cx)`）、ストリーミング表示まである |
 | 種類の表示 | `ui.Badge{TextFunc, ToneFunc}`（`ToneAccent` / `ToneInfo` / `ToneDanger` …） |
@@ -126,7 +126,8 @@ go tool nsgo build -target macos_arm64 apps/agent-history/nsgo  # .app (16 MB, 4
 7. **`ui` の部品を使うならルートで `cx.SetTheme(ui.Theme())` を呼ぶ**。呼ばなくても大半はそれらしく描かれるが、一部の色が 0（透明）になり、チェックボックスがオンでも塗られない、サイドバーの地色が無い、などになる（ui のテストのヘルパーがこれを呼んでいて気づいた）。
 8. `base` だけで組むと、チェックボックスの印のような細部まで自分で作ることになる。`ui` に置き換えたら Tailwind クラスはほぼ不要になり、色は `ui.ColorsOf(cx)`、文字は `ui.Textf(fn, size, weight, colors.Muted)` で揃えられる。
 9. `nsgo check` は Go だけのアプリでは失敗した（TSX の型を生成するために `tsx` パッケージを足して `go list` するので、go.mod に無い依存を要求される）。`vet` までは通る。Go だけのアプリでは使わなくてよい。
-10. 実行ファイルのサイズは mygo 版 21.6 MB / nsgo 版 24.9 MB（`go build`、どちらもドメイン込み、`base` 版で計測）。`.app` は nsgo が stripped で 16 MB。
+11. **`ui.Segmented` は狭いと文字が重なる**。セグメントは等幅に縮み、はみ出しも折り返しもしないので、実データ（All + 4 エージェント、3 桁の件数）を狭いサイドバーで見ると「Claude Code」「Codex」などのラベルと件数が重なって読めなくなった。対処として、セグメントのラベルは短い `AssistantName`（Claude / Codex / Devin / OpenCode）にし、`core.Show{When: func() bool { return sidebarWidth.Get() >= needed() }}` で幅が足りないときは `ui.Select`（ドロップダウン）に切り替えた。必要な幅は「一番長いセグメント × 個数」で見積もる（等幅なので合計ではない）。サイドバーの幅は `SidebarShell` の `Width` / `OnWidthChange` で signal に入っているので、ドラッグ中にしきい値をまたぐとその場で切り替わる。`ui.Select` は `Option.Count` を使わず `Label` も固定の文字列なので、件数入りのラベルは `core.Dynamic` の中で作り直している。
+12. 実行ファイルのサイズは mygo 版 21.6 MB / nsgo 版 24.9 MB（`go build`、どちらもドメイン込み、`base` 版で計測）。`.app` は nsgo が stripped で 16 MB。
 
 ### 移行するなら
 
