@@ -8,14 +8,6 @@ mygo に無い部品を自分で作れるか、作るならどう書くかの調
   `docs/ui/custom-widgets.md`（入口）, `docs/ui/drawing.md`（Painter）, `docs/ui/input.md`（入力）, `docs/ui/accessibility.md`（Role・状態）, `docs/ui/text-input-client.md`（自前のテキスト編集）, `docs/ui/shaders.md`
 - 作った例: [`examples/customwidget/`](../../../examples/customwidget)
 
-## 前提の訂正: mygo は Ebitengine の上に作られていない
-
-「mygo は Ebitengine の上に作られている」と見込んでいたが、そうではない。
-
-- mygo の `go.mod` にあるのは `github.com/ebitengine/purego` だけ。これは Ebitengine の作者が同じ org で出している、**cgo なしで C の関数（OS の API）を呼ぶためのライブラリ**で、ゲームエンジン本体（`hajimehoshi/ebiten`）ではない
-- 描画は mygo が自前で持つ: macOS は Metal、Windows は Direct3D 11（駄目なら WARP）、Linux は OpenGL（GtkGLArea）、ブラウザは WebGL 2。GPU が使えないときは CPU で描く（`MYGO_GPU=0` で強制。`docs/ui/rendering.md`）。角丸・枠線・影は距離場のシェーダーで描き、文字はグリフのアトラスから描く
-- なので「Ebitengine の `ebiten.Image` に直接描く」という逃げ道は無い。ただ、その代わりに次のような **公式のカスタム widget の仕組み** があり、Ebitengine で描くのと同じ程度に低いところまで降りられる
-
 ## mygo の「widget」とは何か
 
 mygo の widget は、**インターフェースを実装して登録する型ではない**。要素（`ui.Element`）を作って返す **ただの関数** である（immediate mode なので、view が毎フレームそれを呼ぶ）。組み込みの `ui.Button` も `ui.Slider` も同じ形をしている。
