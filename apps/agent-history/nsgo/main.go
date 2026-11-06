@@ -371,7 +371,9 @@ func (opt App) Root(cx *core.Scope) core.Node {
 				OnChange: func(on bool) { mask.Set(on); status.Set(""); load() }},
 		}},
 		ui.List{TestID: "sessions", Label: "Sessions", Selection: selection, EstimatedSize: 52,
-			Style: core.Style{FlexGrow: 1},
+			// flex の子は既定で中身の高さより縮まない (min-height: auto)。MinHeight 0 にしないと
+			// リストが全行の高さまで伸び、リスト自身はスクロールしなくなる
+			Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)},
 			Count: func() int { return len(rows.Get()) },
 			// 件数が減った直後、行の束縛が古い index で Key を呼ぶことがあるので範囲を確かめる
 			Key: func(i int) any {
@@ -582,7 +584,7 @@ func (opt App) Root(cx *core.Scope) core.Node {
 				}}
 			},
 			Else: func(cx *core.Scope) core.Node {
-				return core.View{Style: core.Style{FlexGrow: 1}, Children: []core.Node{
+				return core.View{Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0)}, Children: []core.Node{
 					core.Func(sessionInfo),
 					core.Show{When: entriesLoading.Get,
 						Then: func(*core.Scope) core.Node {
@@ -591,7 +593,7 @@ func (opt App) Root(cx *core.Scope) core.Node {
 							}}
 						},
 						Else: func(*core.Scope) core.Node {
-							return core.List{TestID: "entries", Style: core.Style{FlexGrow: 1, Padding: core.Symmetric(6, 0)}, EstimatedSize: 60, Gap: 2,
+							return core.List{TestID: "entries", Style: core.Style{FlexGrow: 1, FlexShrink: 1, MinHeight: core.Pt(0), Padding: core.Symmetric(6, 0)}, EstimatedSize: 60, Gap: 2,
 								// 読み込みに失敗したら、読めたぶんの上にエラーを出す
 								Header: core.Show{When: func() bool { return entriesErr.Get() != "" }, Then: func(*core.Scope) core.Node {
 									t := ui.Textf(func() string { return v(entriesErr.Get()) }, 13, ui.Regular, colors.Danger)

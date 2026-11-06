@@ -117,7 +117,7 @@ go tool nsgo build -target macos_arm64 apps/agent-history/nsgo  # .app (16 MB, 4
 | `win.Update(func(){...})` | `cx.Post(func(){...})`（どの goroutine から呼んでもよい） |
 | `mygo.Clipboard.WriteText` | `cx.SetClipboard(text)`。テストでは `app.Clipboard` で中身を見られるので、**差し替え用の関数フィールドが要らない** |
 
-テスト（`main_test.go`）で確かめたこと: 一覧の表示、マスクで一覧のタイトルが伏せられる、検索とエージェントの絞り込みで件数が変わる、行のクリックと矢印キーで会話が切り替わる、Markdown の見出しが出る、コピーした Markdown の中身、マスクのチェックボックスが最初からオン、マスクを外すと本文のメールアドレスが出る、コピーの粒度（Prompts only では返答が入らない）、Tools / Thinking が既定で隠れていて切り替えで出入りする、`Entries` がエラーを返したときにエラーと読めたぶんの両方が出る、ツール・Thinking・Summary が畳まれていて開ける、作業中の発言と Notice の表示、プロジェクト見出しとホームの `~` 表示、メタ情報、ID と再開コマンドのコピー（再開できないエージェントにはボタンが無い）、矢印キーで見出しの行を飛ばす（計 8 テスト）。読み込みは goroutine + `cx.Post` のままで、テスト側は `app.WaitFor("text:3 sessions", 5*time.Second)` で待つだけでよかった（mygo 版では読み込みを同期にする差し替えを入れていた）。
+テスト（`main_test.go`）で確かめたこと: 一覧の表示、マスクで一覧のタイトルが伏せられる、検索とエージェントの絞り込みで件数が変わる、行のクリックと矢印キーで会話が切り替わる、Markdown の見出しが出る、コピーした Markdown の中身、マスクのチェックボックスが最初からオン、マスクを外すと本文のメールアドレスが出る、コピーの粒度（Prompts only では返答が入らない）、Tools / Thinking が既定で隠れていて切り替えで出入りする、`Entries` がエラーを返したときにエラーと読めたぶんの両方が出る、ツール・Thinking・Summary が畳まれていて開ける、作業中の発言と Notice の表示、プロジェクト見出しとホームの `~` 表示、メタ情報、ID と再開コマンドのコピー（再開できないエージェントにはボタンが無い）、矢印キーで見出しの行を飛ばす（計 8 テスト、ほかにスクロールのテスト 1 つ）。読み込みは goroutine + `cx.Post` のままで、テスト側は `app.WaitFor("text:3 sessions", 5*time.Second)` で待つだけでよかった（mygo 版では読み込みを同期にする差し替えを入れていた）。
 
 ### 書いてみて分かったこと
 
@@ -133,7 +133,8 @@ go tool nsgo build -target macos_arm64 apps/agent-history/nsgo  # .app (16 MB, 4
 11. **`ui.Segmented` は狭いと文字が重なる**。セグメントは等幅に縮み、はみ出しも折り返しもしないので、実データ（All + 4 エージェント、3 桁の件数）を狭いサイドバーで見ると「Claude Code」「Codex」などのラベルと件数が重なって読めなくなった。対処として、セグメントのラベルは短い `AssistantName`（Claude / Codex / Devin / OpenCode）にし、`core.Show{When: func() bool { return sidebarWidth.Get() >= needed() }}` で幅が足りないときは `ui.Select`（ドロップダウン）に切り替えた。必要な幅は「一番長いセグメント × 個数」で見積もる（等幅なので合計ではない）。サイドバーの幅は `SidebarShell` の `Width` / `OnWidthChange` で signal に入っているので、ドラッグ中にしきい値をまたぐとその場で切り替わる。`ui.Select` は `Option.Count` を使わず `Label` も固定の文字列なので、件数入りのラベルは `core.Dynamic` の中で作り直している。
 12. **種類で形が違う行は `core.Dynamic` で作り直す**。会話の 1 行は User（枠付き）/ アシスタント（Markdown）/ ツール（折りたたみ）/ Notice（1 行）で構造が違う。`…Func` で中身だけ差し替える書き方では書きにくいので、行全体を `core.Dynamic(func(cx){ ... })` にし、`shown.Get()` と `r.Index()` を読んで、そのときの発言から静的な値で組み立てた。表示する発言が変わったときだけ作り直される。サイドバーの見出しとセッションの 2 種類は `core.Show{When: 見出しか}` で出し分けた（`When` が変わったときだけ作り直す）。
 13. **テストのセレクタの細かい規則**: `text:` は **部分一致**（`text:hello world` は「Go で hello world」にも当たる）で、`text:"…"` が全体の一致、`text:/…/` は **正規表現**（なので `text:/tmp/demo` は「'e' is not a regular expression flag」で落ちる。`text:"/tmp/demo"` と書く）。`id:entry-1 >> text:"Thinking"` のように ` >> ` で入れ子にでき、ヘッダーの Thinking チェックボックスと折りたたみの Thinking を区別できた。`ui.Collapsible` の `TestID` は外側の箱に付き、押せるのは中のトリガーなので、`app.Press("id:entry-5")` は「no pressable view」になる（トリガーの文字か ` >> ` で指定する）。
-14. 実行ファイルのサイズは mygo 版 21.6 MB / nsgo 版 24.9 MB（`go build`、どちらもドメイン込み、`base` 版で計測）。`.app` は nsgo が stripped で 16 MB。
+14. **リストには `MinHeight: core.Pt(0)` を付ける**（実データで「スクロールするとすぐ先頭に戻される」と言われて気づいた）。`ui.List{Style: core.Style{FlexGrow: 1}}` だけだと、flex の子の既定の最小高さ（CSS の `min-height: auto` と同じく中身の高さ）が効いて、リストが **全行の高さ（200 件で 11548pt）まで伸びる**。リスト自身のスクロール範囲は 0 になり、はみ出した分は外側で切られるだけなので、macOS ではトラックパッドで動かしても弾性スクロールで先頭に跳ね返される。仮想化も実質効かず、全行のセルが作られていたはず。`FlexShrink: 1, MinHeight: core.Pt(0)` を付けたら窓の高さに収まり、リストの中でスクロールするようになった。間に挟んだ `core.View{FlexGrow: 1}` にも同じ指定が要る。`TestLongListsScroll`（`scroll_test.go`）で、200 件の一覧と 400 発言の会話でリストが窓より高くならないことと、スクロール位置が保たれることを確かめている（修正を外すとこのテストは落ちる）。`-target macos` ではネイティブのスクロール入力になるので、移動量は指定どおりにならない（2000 を指定して 1919）。
+15. 実行ファイルのサイズは mygo 版 21.6 MB / nsgo 版 24.9 MB（`go build`、どちらもドメイン込み、`base` 版で計測）。`.app` は nsgo が stripped で 16 MB。
 
 ### 移行するなら
 
