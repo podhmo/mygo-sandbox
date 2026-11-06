@@ -29,7 +29,7 @@ go tool mygo build apps/agent-history  # .app / .dmg を作る
 
 - [mygo.md](docs/sketch/ja/mygo.md): mygo の概要と書き方
 - [mygo-examples.md](docs/sketch/ja/mygo-examples.md): examples やアプリを作って分かったこと
-- [mygo-testing.md](docs/sketch/ja/mygo-testing.md): mygo のテストの仕方（Tester と automation プラグインでの実ウィンドウ E2E）とカメラの扱い。nsgo との比較
+- [mygo-testing.md](docs/sketch/ja/mygo-testing.md): mygo のテストの仕方（Tester と automation プラグインでの実ウィンドウ E2E）とスクリーンキャプチャ。nsgo との比較
 - [nsgo.md](docs/sketch/ja/nsgo.md): nsgo（NSH の Go 移植、ネイティブビューで描く UI エンジン）の調査、事前準備、examples、agent-history の試作
 - [claude-code-session-files.md](docs/sketch/ja/claude-code-session-files.md) / [codex-session-files.md](docs/sketch/ja/codex-session-files.md) / [devin-session-files.md](docs/sketch/ja/devin-session-files.md) / [opencode-session-files.md](docs/sketch/ja/opencode-session-files.md): セッション履歴ファイルの形式
 - [agent-history-masking.md](docs/sketch/ja/agent-history-masking.md): マスキング対象の定義

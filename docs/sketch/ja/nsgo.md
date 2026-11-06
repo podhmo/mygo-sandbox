@@ -94,7 +94,7 @@ go tool nsgo build -target macos_arm64 apps/agent-history/nsgo  # .app (16 MB, 4
 最初は `base`（見た目なし）と Tailwind クラスで組み、そのあと **`ui` パッケージ（Onevra のテーマ）の部品に置き換えて見た目を整えた**。
 
 実装したもの: **元の mygo 版の機能はひととおり**。セッション一覧（プロジェクト＝作業ディレクトリごとの見出し付き、仮想化リスト、クリックと矢印キーで選択）、検索、エージェントでの絞り込み（件数つき、狭いとドロップダウン）、会話を別 goroutine で読み込んで表示、ヘッダーのメタ情報（エージェント・パス・ブランチ・期間・prompt 数・サイズ）、Copy resume command / Copy session ID、Copy as Markdown のメニュー（3 段階）、Tools / Thinking の表示切り替え（既定は非表示）、ツール呼び出し・Thinking・Summary の折りたたみ、作業中に送った発言（`Queued`）の表示、Notice の 1 行表示、会話の読み込みエラーの表示、マスクの切り替え、サイドバーの開閉と幅の変更、パスのホームを `~` に縮める表示。
-元に無くて増えたもの: サイドバーの開閉、行ごとのエージェントのバッジ、`nsgo test -target macos` での実ウィンドウのテスト。
+元に無くて増えたもの: サイドバーの開閉、行ごとのエージェントのバッジ、`nsgo test -target macos` での実ウィンドウのテスト。（いずれも「元の mygo 版のアプリに無かった」もの。mygo でもバッジは `ui.Badge`、実ウィンドウのテストは automation プラグインで作れる。サイドバーの開閉だけは mygo に部品が無い。下の「mygo 側の対応状況の確認」）
 
 対応表（右が `ui` 版で使ったもの）:
 
@@ -142,6 +142,38 @@ go tool nsgo build -target macos_arm64 apps/agent-history/nsgo  # .app (16 MB, 4
 - 長い会話の 1 エントリが巨大な Markdown のときの `TextView` の重さは未計測。必要なら `ui.Collapsible` で畳むか、ツール結果は `textview` ではなく等幅の `core.Text` にする。
 - プロジェクト見出しをスクロール中も上に残したいなら `core.List` の `StickyHeaderIndicesFunc` が使えそう（`ui.List` には無いので、選択やキー操作を自前で持つことになる。未検証）。
 - ドメイン層は UI 非依存なので、mygo 版と nsgo 版を並べて保守できる（今回の構成）。
+
+## mygo 側の対応状況の確認
+
+この文書で mygo を引き合いに出している箇所を、mygo v0.7.4 のドキュメント（モジュール同梱の `docs/`）と実際の動作で確かめ直した（2026-11-06）。「nsgo にはあって mygo には無い」と読める書き方をしていたもののうち、実は mygo にもあったものが多い。テストとスクリーンキャプチャの詳細は [mygo-testing.md](./mygo-testing.md)。
+
+| 箇所 | この文書での書き方 | mygo の実際 |
+|---|---|---|
+| 描画方式の表の下 | 見た目が OS 標準（テキスト選択、IME、アクセシビリティ）になるのが nsgo の利点 | mygo も **自前で実装している**: テキスト選択（Markdown はブロックをまたいで選べる）、IME の変換（`tt.Compose` でテストもできる）、VoiceOver / Orca / Narrator 向けのアクセシビリティの木。違うのは「OS の部品そのものか、OS らしく作り直したものか」 |
+| 同上 | GPU は `Shader`（Go 構文 → MSL/GLSL/HLSL）など一部だけで使う | mygo にも Go 構文のシェーダー（`ui/shader`）がある。mygo は画面全体も GPU で描く |
+| テスト（表） | mygo は `ui.NewTester` だけ | **実ウィンドウの E2E は automation プラグインで書ける**（`examples/counter/e2e_test.go`）。ただし Tester のテストをそのまま実ウィンドウで回すことはできず、別に書く |
+| 事前準備 | mygo は「Go さえあれば良い（Linux は GTK3）」 | 正しい。Linux は GTK 3 と WebKitGTK 4.1（Native UI だけなら配布物の依存から WebKitGTK を外せる: `linux.webview: false`） |
+| 事前準備（`.icon`） | nsgo は Xcode の actool が無いと `dev` も `build` も失敗 | mygo も `macos.icon` の Icon Composer `.icon` は **Xcode 26 以降の actool** でコンパイルするが、無いときは **メッセージを出してスキップし、PNG から作った `.icns` のまま続ける**。`mygo dev` はそもそも `.icns` で表示する。止まらない点が nsgo と違う |
+| 事前準備（画面収録の権限） | `app.Screenshot` は権限なしで撮れる | mygo の `tt.Image` / `ui.Render` / `win.CapturePage` / automation の `capture` も権限なしで撮れる。mygo は自分で描き直すので OS の画面キャプチャを使わない |
+| 対応表: `ui.Split` → `SidebarShell` | 開閉ボタン・幅変更・ヘッダーまで付く | mygo の `ui.Split` は幅変更（ドラッグと矢印キー）と、窓が狭いときに最初のペインが縮む動きまで。**サイドバーの開閉ボタンを持つ外枠の部品は無い**（`ui.Sidebar` は Finder のようなソースリストで、別もの）。開閉は自分で分岐して作る |
+| 対応表: `ui.List` | nsgo の `ui.List` で矢印キー・Home/End・ページキーの移動が付く | mygo の `ui.List` も `Selected` を渡すと **↑↓・Home/End（Page Up/Down は Linux と Windows だけ）** で選べ、`Label` で頭文字を打って選ぶこともできる。`Selection[K]` で複数選択（key で保持）もある。選択の変化は List の要素の `Changed()` |
+| 対応表: `ListState.Header` | `ui.List` には無いので Effect で飛ばす | mygo は **見出しの行を上に固定（sticky）** し、選択でも飛ばす。「移行するなら」で未検証とした sticky な見出しは mygo では最初から使えていた |
+| 対応表: `ui.Segmented`（件数） | nsgo は `Option.Count` で件数を出せる | mygo の `ui.Segmented` は文字列のラベルだけで件数の欄は無い（ラベルに含めるか、`ui.SegmentedBase` で自作する） |
+| 書いてみて 11（Segmented が狭いと重なる） | nsgo では等幅に縮んで文字が重なった | mygo では **重ならないが、はみ出した後ろのセグメントが切れて見えなくなる**。`ui.Render` で「All 812 / Claude Code 420 / Codex 211 / Devin 97 / OpenCode 84」を幅 600 と 240 で描いて確かめた（幅 240 では 3 つ目の途中で切れた）。セグメントは中身の幅で、等幅ではない。mygo 版の agent-history も狭いサイドバーでは同じ問題を抱えている（ドロップダウンの `ui.Select` はある） |
+| 対応表: `markdown.View` → `ui.TextView` | nsgo はコードのハイライト・ストリーミング表示まである | mygo の `ui/markdown` も **コードブロックのハイライト**（コードエディタと同じトークナイザ）と **ストリーミング**（`markdown.Stream`、トークンを一定の速さで見せる）、ブロックをまたいだ選択がある |
+| 対応表: `ui.Badge` / アイコン | nsgo は Badge と同梱の Lucide | mygo にも `ui.Badge` がある。アイコンは `ui.Icon` に SVG を渡す形で、**アイコン集は同梱しない**（Lucide などの SVG を embed する） |
+| 対応表: クリップボード | `cx.SetClipboard` なら差し替え不要（mygo は関数フィールドで差し替えた） | mygo も view から **`c.Services().WriteClipboard`** を使えば `tt.Clipboard()` で読め、差し替えが要らない。`mygo.Clipboard.WriteText` を Tester の中で呼ぶとテストが固まる |
+| テスト / 書いてみて 1（非同期のままテスト） | mygo 版は読み込みを同期に差し替えた | これは **mygo では本当にできない**。Tester には `Window.Update` に当たるものが無く、`WaitFor` のような待ち合わせも無い |
+| 書いてみて 3, 13（セレクタ） | nsgo は `text:` 部分一致・`"…"` 完全一致・正規表現・` >> ` の入れ子・`id:` | mygo の Tester は `Click` / `Find` が **表示文字列か `Label` の完全一致**、`HasText` が部分一致だけ。正規表現・入れ子・key での指定は無い（key で探せるのは automation の `act` / `tree`） |
+| 書いてみて 5, 6（行の使い回し、index の範囲外） | nsgo の List の行は使い回される | mygo は immediate mode で毎フレーム行を組み立てるので、この種の問題は起きない（同一性は `Key` で与える） |
+| 書いてみて 7（`SetTheme`） | ルートでテーマを設定しないと色が抜ける | mygo のテーマ（`c.Theme()`）は既定で OS のライト / ダークに追従し、設定は要らない |
+| 書いてみて 9（`nsgo check`） | Go だけのアプリでは失敗 | mygo の `go tool mygo vet` は Go だけのアプリでそのまま通る（`apps/agent-history`、`examples/counter` で確認。ビルド値の保持や goroutine へのキャプチャを調べる） |
+| 書いてみて 14（List が伸びて中でスクロールしない） | flex の最小高さで List が全行の高さまで伸びた | mygo 版の agent-history（`ui.Split` + `ui.List`）では起きていない（実データでスクロールも問題なかった）。mygo にも `MinHeight` / `Shrink` はあるが、指定しなくて済んだ |
+| 未検証: `-fps` / `-trace` | — | mygo はインスペクター（開発ビルドで F12 / Alt+Cmd+I）の Performance に各フレームの build / layout などの時間が出る。`MYGO_FRAME_STATS` で遅いフレームをログに出せる |
+| 未検証: hot reload | nsgo は TSX だけの変更ならその場で差し替え | mygo の `mygo dev` は Go や設定の変更で **作り直して再起動**（状態は消える）。`r` で手動の再ビルド |
+| 未検証: `-target web` / TSX | — | mygo は `mygo dev -web` で Native UI を WebAssembly + WebGL 2 でブラウザに出せる。TSX に相当するのは Web page 版（Vite + TS、`mygo.Bind` から型付きの TS クライアントを生成。Bun が要る） |
+
+この文書の記述で mygo について **誤っていたのは無く**、「nsgo の利点」として挙げたもののうち多くが mygo にもあった、というのが主な訂正点。逆に mygo に無い・弱いことが確かめられたのは、サイドバー開閉の外枠、Segmented の件数欄と狭いときの見え方、Tester での非同期の待ち合わせと柔軟なセレクタ、同じテストを実ウィンドウで回す仕組み、の 4 つ。
 
 ## 未検証・次に試したいこと
 

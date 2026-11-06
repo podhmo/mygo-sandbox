@@ -1,6 +1,6 @@
-# mygo のテストの仕方とカメラ（nsgo と比べて）
+# mygo のテストの仕方とスクリーンキャプチャ（nsgo と比べて）
 
-[nsgo.md](./nsgo.md) で nsgo を試したときに「テストを実ウィンドウでも動かせる」のが楽だったので、mygo 側で同じことがどこまでできるかを調べ直した記録。あわせて、カメラ（とマイク）の扱いも調べた。
+[nsgo.md](./nsgo.md) で nsgo を試したときに「テストを実ウィンドウでも動かせる」のが楽だったので、mygo 側で同じことがどこまでできるかを調べ直した記録。あわせて、窓の見た目をどうやって画像にしているか（スクリーンキャプチャ）も調べた。
 
 - 環境: macOS 15.8.1 (arm64), Go 1.27.3, mygo v0.7.4（2026-11-06 時点でもこれが最新）
 - 日付: 2026-11-06
@@ -111,36 +111,47 @@ go test ./examples/counter                                    # タグ無しで�
 
 ### mygo 自身の E2E
 
-mygo のリポジトリは `internal/e2e/` に実バックエンドを動かすテストを大量に持っている（`MYGO_E2E=1 go test ./internal/e2e`、デスクトップのセッションが要る）。窓・メニュー・ドラッグ・PDF・WebView・カメラなど OS ごとの挙動を確かめるもの。`internal` なので利用側からは import できず、アプリ向けの手段は上の automation プラグイン。
+mygo のリポジトリは `internal/e2e/` に実バックエンドを動かすテストを大量に持っている（`MYGO_E2E=1 go test ./internal/e2e`、デスクトップのセッションが要る）。窓・メニュー・ドラッグ・PDF・WebView・画面共有など OS ごとの挙動を確かめるもの。`internal` なので利用側からは import できず、アプリ向けの手段は上の automation プラグイン。
 
-## カメラ（とマイク）
+## スクリーンキャプチャ（窓の見た目を画像にする）
 
-結論: **mygo の Native UI にはカメラから映像を取る API が無い**。カメラは **Web page（WebView）側で `getUserMedia()` を使う** 前提で、Go 側はその許可と状態を管理する。nsgo も同様にカメラの API は持っておらず（`android.permissions` に `CAMERA` などを足せる程度）、こちらは比較対象が無い。
+結論: **mygo は OS の画面キャプチャを使わず、自分で描いたシーンをもう一度描いて PNG にする**。自前で GPU に描いているので、窓の中身は自分で持っている。そのため **画面収録の権限は要らない**。ただし窓が見えていないときは古いフレームになる（下記）。nsgo はネイティブビューに描かせているので、テストでは OS のビューの描画機能（macOS は `cacheDisplayInRect:`、Windows は `PrintWindow` など）で撮っていて、こちらも画面収録の権限は要らない。
 
-### Web page 側でカメラを使う
+### 撮り方の一覧
 
-- **許可**: ページがカメラ・マイク・位置情報・通知を求めると、既定では **アプリ自身のページ（カスタムスキーム含む）は許可、それ以外は拒否**。`Page.SetPermissionHandler(func(req mygo.PermissionRequest) bool { ... })` で判断を差し替えられる（main スレッドで呼ばれる。`req.Origin`, `req.Permissions` に `mygo.PermissionCamera` など）。
-- **OS の許可**: macOS はアプリごとに 1 回ユーザーに聞き、**`Info.plist` に説明が無いとカメラ・マイクを使った瞬間にアプリを終了させる**。Web 版は `mygo.config.ts` の `macos.infoPlist`、Native 版は `mygo.json` の `macos.infoPlist` に `NSCameraUsageDescription` / `NSMicrophoneUsageDescription` を書く。
-- **状態の取得と操作**: `page.CaptureState(mygo.CaptureCamera)` が `CaptureNone` / `CaptureActive` / `CaptureMuted` を返し、`page.OnCaptureStateChanged` で変化を受け取れる（録画中のインジケータを窓やメニューバーに出す用途）。`page.SetCaptureState(kind, mygo.CaptureMuted)` でページの協力なしにミュート・停止できる（通話アプリのミュートボタン）。ミュート中のトラックは黒いフレーム・無音になる。種類は `CaptureCamera` / `CaptureMicrophone` / `CaptureDisplay`（`getDisplayMedia()`）。
-- プラットフォーム差:
-  - macOS: `WKWebView` の `cameraCaptureState` など（macOS 12+）。画面共有は private API（13+）。カメラとマイクのミュートが WebKit 内で連動していて、`SetAudioMuted` で片方が一瞬ミュートされる
-  - Linux: WebKitGTK 2.34 以降の `webkit_web_view_get_camera_capture_state`
-  - Windows: WebView2 は状態を教えないので **常に `CaptureNone`、操作も何もしない**
-- Native UI の窓では `CaptureState` は常に `CaptureNone`。Native UI の中に埋め込んだ `ui.WebView` のページでは使える。
+| 方法 | どこで | 何が撮れるか |
+|---|---|---|
+| `tt.Image()` | `ui.NewTester` のテスト | 最後のフレーム（`*image.RGBA`）。ウィンドウは開かない。CPU で描く |
+| `ui.Render(view, w, h, scale)` | どこでも（テスト・ツール） | view を 1 フレームだけ描いた `*image.RGBA`。状態を持たない 1 枚絵のスナップショット向け（下の Segmented の確認に使った） |
+| `win.CapturePage()` | 動いているアプリの中 | Native UI の窓なら **内容をそのまま描き直した PNG**（タイトルバーは含まない）、Web ページの窓ならページのスクリーンショット（WebView の機能） |
+| `webView.CapturePage()` | Native UI に埋め込んだ `ui.WebView` | そのページだけ。`Window.CapturePage` では **WebView の部分が穴（空白）になる** |
+| automation の `capture` | 別プロセス（E2E） | 中身は `win.CapturePage()`。PNG を base64 で返す |
 
-### テストではモックのカメラを使う
+`win.CapturePage()` の中身（`content.go` の `captureContent`）は、main スレッドで窓の描画先から画素を読み、PNG にエンコードするだけ。ドキュメント（`docs/ui/motion.md`、`docs/architecture.md`）によると:
 
-mygo の `internal/e2e/capture_test.go` は、本物のカメラではなく **WebKit のモックデバイス** を使っている（`WKPreferences` の private な `_setMockCaptureDevicesEnabled:` と、許可プロンプトを出さない `_setMockCaptureDevicesPromptEnabled:`）。`app://localhost/capture` のページで `getUserMedia({audio: true, video: true})` を呼び、`SetCaptureState` でミュート・停止したときに状態とイベントが期待どおり変わるかを見る。macOS では WebKit がそれでもシステムに問い合わせることがあるので `MYGO_E2E_CAPTURE=1` のときだけ走らせ、Linux では常に走る。このフックも `internal` で、利用側からは使えない。
+- `examples/counter` の E2E では、320×220 の窓から 640×384（Retina の 2 倍、タイトルバーを除いた内容）の PNG が取れた。権限の確認ダイアログは出なかった。
+- macOS では見えていない窓（隠れている、別の Space にある）は **フレームを描かない**。ドキュメントには「`CapturePage` のときはフレームを組み立てるので今の状態が写る」とあるが、**試すと違った**。counter を起動してアプリを隠し（`osascript` で `set visible ... to false`。`windows` の `visible` が false になる）、automation で `+1` を 3 回押すと:
+  - `idle` は毎回 `timeout`（`window 1 still draws after 3s`）
+  - `tree` の数字は 0 のまま（押下が処理されていない）
+  - `capture` は撮れるが、写るのは **隠す前の 0**
+  
+  つまり **E2E やキャプチャは窓を見える状態にして行う** 必要がある。テストの途中で別のアプリが前に出て窓を完全に覆ったときも同じことが起きうる（未検証）。
 
-### その他の「カメラ」
+### できないこと・注意
 
-- `ui.Image` は JPEG の EXIF の向き（カメラの回転情報）どおりに正立させて表示する。
-- `plugins/game` の `game.Camera` はゲームのワールドを見る 2D の視点（`ui.Transform`）で、デバイスのカメラとは無関係。`examples/blackhole` の `camera.go` もシェーダー描画の視点。
-- 動画は `ui.Video` + `ui.VideoPlayer`（GIF などのデコーダの再生）で、カメラのライブ映像を流す口は無い。
+- **画面全体や他のアプリの窓を撮る API は無い**（ScreenCaptureKit / `CGWindowListCreateImage` などは使っていない）。撮れるのは自分の窓の中身だけ。
+- Web ページが `getDisplayMedia()` で画面共有を始めることはでき、Go 側は `page.CaptureState(mygo.CaptureDisplay)` / `OnCaptureStateChanged` でその状態を知り、`SetCaptureState` で止められる（macOS は WebKit の private API で 13 以降、Windows の WebView2 は状態が分からない）。この場合の画面収録の権限は OS（WebKit）が求めるはずだが未検証。
+- `win.SetContentProtection(true)` は **OS のスクリーンショットや画面収録から窓を隠す**設定。`CapturePage` は自分で描き直すので影響を受けないはず（未検証）。
+- ターミナルから `screencapture` を使うと、画面収録の権限が無ければ壁紙しか写らない（[mygo-examples.md](./mygo-examples.md) の 15）。見た目を自動で確かめるなら、上の 3 つ（`tt.Image` / `ui.Render` / `capture`）を使う。
+
+### 参考: デバイスのカメラ・マイク
+
+（写真を撮るような用途は今回は不要だが、調べたので短く残す）Native UI にはカメラの映像を取る API が無い。Web ページの `getUserMedia()` を使い、Go 側は許可（`Page.SetPermissionHandler`。既定はアプリ自身のページだけ許可）と状態（`CaptureState` / `SetCaptureState`）を扱う。macOS では `Info.plist` に `NSCameraUsageDescription` が無いと使った瞬間にアプリが終了させられる（`mygo.json` / `mygo.config.ts` の `macos.infoPlist` に書く）。mygo 自身のテストは WebKit のモックデバイスを使っている（`internal/e2e/capture_test.go`）。
 
 ## 未検証・次に試したいこと
 
 - `apps/agent-history`（mygo 版）のコピーを `c.Services().WriteClipboard` に置き換えて、`copyText` の差し替えを外す
 - agent-history の E2E（読み込みの非同期を差し替えずに、実データ相当の `testdata` で `idle` 待ち）
-- Web page 版で実際に `getUserMedia` を使い、`SetPermissionHandler` と `Info.plist` の有無で挙動を見る（Bun が要る）
+- `SetContentProtection(true)` の窓を `CapturePage` で撮れるか、隠れた・最小化した窓を撮れるか
+- Web ページの `getDisplayMedia()` で画面共有したときの画面収録の権限の扱い（Bun が要る）
 - インスペクターの Frames タブで agent-history の重さを見る
