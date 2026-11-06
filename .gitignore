@@ -2,3 +2,4 @@
 build/
 *.png.out
 dist/
+.nsgo/
