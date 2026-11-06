@@ -12,7 +12,7 @@
 |---|---|
 | [`examples/`](examples) | native UI の小さな例: `counter`（最小）、`todo`（入力・リスト）、`async`（goroutine からの更新） |
 | [`apps/agent-history/`](apps/agent-history) | Claude Code / Codex / Devin / OpenCode の過去のセッションを一覧して読むビューア。マスキング、マークダウンでのコピーに対応 |
-| [`apps/agent-history/nsgo/`](apps/agent-history/nsgo) | 同じビューアの UI を [nsgo](https://github.com/oneo-me/nsgo) で書き直した試作（一覧・検索・本文・マスク・コピーのみ） |
+| [`apps/agent-history/nsgo/`](apps/agent-history/nsgo) | 同じビューアの UI を [nsgo](https://github.com/oneo-me/nsgo) の `ui` 部品で書き直した試作（一覧・検索・絞り込み・本文・マスク・コピーのみ） |
 | [`docs/sketch/ja/`](docs/sketch/ja) | 調査メモ（下記） |
 
 ## 使い方
