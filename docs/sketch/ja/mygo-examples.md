@@ -18,6 +18,7 @@
 ```sh
 go test ./...                          # 全テスト（ウィンドウは開かない）
 SNAPSHOT=/tmp/todo.png go test ./examples/todo   # 描画結果を PNG で保存
+go test -tags e2e ./examples/counter     # 実ウィンドウでの E2E（automation プラグイン。mygo-testing.md）
 go run ./examples/counter              # 普通に起動
 go tool mygo dev examples/counter      # live reload で開発
 go tool mygo build examples/counter    # .app / .dmg を作る

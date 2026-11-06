@@ -94,7 +94,7 @@ tt.Advance(time.Second)     // テスター独自の時計を進める（sleep �
 img := tt.Image()           // 最後のフレームを *image.RGBA で取れる → スナップショット
 ```
 
-ビルドしたアプリを外から E2E で操作したい場合は automation プラグインがある。
+ビルドしたアプリを外から E2E で操作したい場合は automation プラグインがある（試した結果は [mygo-testing.md](./mygo-testing.md)）。
 
 ### コンポーネント
 
@@ -157,3 +157,4 @@ document.body.textContent = await Greeter.greet("Ada");
 ## 関連
 
 - 実際に examples を書いて動かした結果: [mygo-examples.md](./mygo-examples.md)
+- テストの仕方（実ウィンドウの E2E を含む）とカメラ: [mygo-testing.md](./mygo-testing.md)

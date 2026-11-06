@@ -23,7 +23,7 @@
 | OS への到達 | purego（cgo なし） | macOS / Linux も purego、Windows は syscall + COM。macOS は `CGO_ENABLED=0` で動く。iOS だけ Xcode のリンカのため cgo |
 | UI の書き方 | `func view(c *ui.Context)` が毎回呼ばれる。状態は普通の Go の変数 | component は **1 回だけ** 実行される。状態は `core.Signal`、変わる部分は `ContentFunc` / `ClassFunc` / `StyleFunc` などの関数で渡す（SolidJS 風） |
 | 別 goroutine から | `win.Update(func(){...})` | `cx.Post(func(){...})` |
-| テスト | `ui.NewTester`（ウィンドウ無し） | `nsgotest.Start`（ウィンドウ無し）。さらに `go tool nsgo test -target macos` で **同じテストを実ウィンドウ・ネイティブ入力で** 走らせられる |
+| テスト | `ui.NewTester`（ウィンドウ無し）。実ウィンドウは automation プラグインでソケット越しに別途書く（[mygo-testing.md](./mygo-testing.md)） | `nsgotest.Start`（ウィンドウ無し）。さらに `go tool nsgo test -target macos` で **同じテストを実ウィンドウ・ネイティブ入力で** 走らせられる |
 | 設定ファイル | `mygo.json`（無くてもよい） | `nsgo.yaml`（`dev` / `build` には **必須**） |
 
 GPU は「画面全体を自前で描く」用途ではなく、`Shader`（Go 構文のシェーダーを MSL/GLSL/HLSL に変換）や Canvas など一部の要素だけで使う。見た目が OS 標準（テキスト選択、IME、スクロールの慣性、アクセシビリティ）になるのが利点で、そのぶん各 OS のバックエンドとその依存が要る。
