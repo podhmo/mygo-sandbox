@@ -38,7 +38,7 @@ mygo init が生成するエージェント向けの skill（`mygo-maintenance`�
 
 ### クリップボードは `c.Services()` 経由にすると差し替えが要らない
 
-`apps/agent-history`（mygo 版）はコピーを `a.copyText = func(s string){ mygo.Clipboard.WriteText(s) }` という関数フィールドにして、テストで差し替えている。調べると、view からは `c.Services().WriteClipboard(text)` が使え、こちらは Tester では `tt.Clipboard()` に入る。
+`apps/agent-history`（mygo 版）は最初、コピーを `a.copyText = func(s string){ mygo.Clipboard.WriteText(s) }` という関数フィールドにして、テストで差し替えていた。調べると、view からは `c.Services().WriteClipboard(text)` が使え、こちらは Tester では `tt.Clipboard()` に入る。
 
 試した結果（Tester の中でボタンを押して書き込む）:
 
@@ -48,6 +48,12 @@ mygo init が生成するエージェント向けの skill（`mygo-maintenance`�
 | `mygo.Clipboard.WriteText("via global")` | **テストが固まる**（`mygo.onMain` でメインループを待ち続け、`-timeout` で落ちた）。アプリが動いていないので main スレッドの仕事が回らない |
 
 `Services` は窓のサービス（クリップボード、URL を開く、`Invalidate`）を持つ値で、フレームをまたいで保持してよい（skill にも「永続的なクリップボード／URL のコールバックや背景からの再描画には `c.Services()` をキャプチャせよ」とある）。nsgo の `cx.SetClipboard` → `app.Clipboard` と同じ形にできる。ただし非同期の読み込み（`win.Update`）は Tester に対応する手段が無いので、そちらの差し替えは残る（`Services.Invalidate` は任意の goroutine から呼べるが、モデルの更新は `Window.Update` で行うように、とある）。
+
+これを受けて、mygo 版の agent-history を書き換えた。`copyText` フィールドを消し、ボタンとメニューから `c.Services().WriteClipboard` を呼ぶ（`copyMarkdown` は `ui.Services` を引数に取る）。テストは `tt.Clipboard()` で確かめる。
+
+- コピーの呼び出しを外すと、コピーを確かめている 3 つのテスト（`TestViewer`, `TestMasking`, `TestCopyMarkdown`）がすべて落ちることを確かめた。
+- `tt.Clipboard()` は最後にコピーした値だけなので、コピーのたびに確かめる。マスクを切ったあとのコピーも、`copyMarkdown` を直接呼ばずに UI（チェックボックス → メニュー）から操作するようにした。
+- 実際のアプリでも、automation で `Copy session ID` を押して `pbpaste` で本物のクリップボードに入ることを確かめた。
 
 ## 実ウィンドウ: automation プラグイン
 
@@ -150,7 +156,6 @@ mygo のリポジトリは `internal/e2e/` に実バックエンドを動かす�
 
 ## 未検証・次に試したいこと
 
-- `apps/agent-history`（mygo 版）のコピーを `c.Services().WriteClipboard` に置き換えて、`copyText` の差し替えを外す
 - agent-history の E2E（読み込みの非同期を差し替えずに、実データ相当の `testdata` で `idle` 待ち）
 - `SetContentProtection(true)` の窓を `CapturePage` で撮れるか、隠れた・最小化した窓を撮れるか
 - Web ページの `getDisplayMedia()` で画面共有したときの画面収録の権限の扱い（Bun が要る）

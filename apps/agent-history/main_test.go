@@ -60,22 +60,20 @@ func fixtures() []history.Source {
 }
 
 // newTestApp は非同期処理を同期にした app を返す。
-func newTestApp(t *testing.T) (*app, *[]string) {
+func newTestApp(t *testing.T) *app {
 	t.Helper()
 	a := newApp(fixtures())
-	var copied []string
-	a.copyText = func(s string) { copied = append(copied, s) }
 	a.redactor = redact.New(redact.Options{Home: "/Users/alice", Users: []string{"alice"}})
 	a.loadEntries = func(s *history.Session, mask bool) {
 		es, err := a.fetchEntries(s, mask)
 		a.setEntries(s, mask, es, err)
 	}
 	a.setProjects(history.Load(a.sources))
-	return a, &copied
+	return a
 }
 
 func TestViewer(t *testing.T) {
-	a, copied := newTestApp(t)
+	a := newTestApp(t)
 	tt := ui.NewTester(a.view, 1000, 700)
 
 	// 取得元が違っても同じ作業ディレクトリなら 1 つのプロジェクトにまとまる
@@ -121,8 +119,8 @@ func TestViewer(t *testing.T) {
 	if err := tt.Click("Copy resume command"); err != nil {
 		t.Fatal(err)
 	}
-	if len(*copied) != 1 || (*copied)[0] != "alpha resume a1" {
-		t.Errorf("copied=%q", *copied)
+	if got := tt.Clipboard(); got != "alpha resume a1" {
+		t.Errorf("copied=%q", got)
 	}
 
 	// 取得元で絞り込み
@@ -165,7 +163,7 @@ func hasPrefix(texts []string, prefix string) string {
 }
 
 func TestMasking(t *testing.T) {
-	a, copied := newTestApp(t)
+	a := newTestApp(t)
 	tt := ui.NewTester(a.view, 1000, 700)
 
 	// 既定でオン: サイドバーのパスとタイトルも伏せる
@@ -195,7 +193,7 @@ func TestMasking(t *testing.T) {
 	if err := tt.Click("Copy resume command"); err != nil {
 		t.Fatal(err)
 	}
-	if got := (*copied)[0]; got != "beta resume b2" {
+	if got := tt.Clipboard(); got != "beta resume b2" {
 		t.Errorf("copied=%q", got)
 	}
 
@@ -218,7 +216,7 @@ func TestMasking(t *testing.T) {
 }
 
 func TestCopyMarkdown(t *testing.T) {
-	a, copied := newTestApp(t)
+	a := newTestApp(t)
 	tt := ui.NewTester(a.view, 1000, 700)
 	if err := tt.Click("‹user› の設定を確認"); err != nil {
 		t.Fatal(err)
@@ -237,7 +235,7 @@ func TestCopyMarkdown(t *testing.T) {
 			t.Fatal(err)
 		}
 		tt.Frame()
-		got := (*copied)[len(*copied)-1]
+		got := tt.Clipboard()
 		if !strings.HasPrefix(got, "# ‹user› の設定を確認\n") || !strings.Contains(got, "- Project: `~/work`") {
 			t.Errorf("%s: header: %q", c.item, got)
 		}
@@ -257,9 +255,18 @@ func TestCopyMarkdown(t *testing.T) {
 	}
 
 	// マスクを切ると元の内容
-	a.setMask(false)
-	a.copyMarkdown(a.current, history.PromptsOnly, "Prompts only")
-	if got := (*copied)[len(*copied)-1]; !strings.Contains(got, "bob@corp.co.jp") || !strings.Contains(got, "/Users/alice/work") {
+	if err := tt.Click("Mask private information"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if err := tt.Click("Copy as Markdown"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ChooseMenuItem("Prompts only"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if got := tt.Clipboard(); !strings.Contains(got, "bob@corp.co.jp") || !strings.Contains(got, "/Users/alice/work") {
 		t.Errorf("unmasked: %q", got)
 	}
 }

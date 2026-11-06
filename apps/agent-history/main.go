@@ -67,10 +67,11 @@ type app struct {
 	redactor  *redact.Redactor
 	maskCache map[string]string
 
-	// 非同期処理と副作用。main で実装を入れ、テストでは差し替える。
+	// 非同期処理。main で実装を入れ、テストでは同期の実装に差し替える。
 	// loadEntries は fetchEntries を別 goroutine で呼び、結果を setEntries に渡す。
+	// (クリップボードは view の c.Services() に書くので差し替えは要らない。
+	// ui.Tester では tt.Clipboard() で読める)
 	loadEntries func(s *history.Session, mask bool)
-	copyText    func(string)
 }
 
 func newApp(sources []history.Source) *app {
@@ -191,7 +192,7 @@ var markdownChoices = []struct {
 
 // copyMarkdown は会話をマークダウンにしてコピーする。マスクがオンなら伏せた内容をコピーする
 // (entries はマスク済みで読み込まれている)。表示の Tools / Thinking の切り替えには左右されない。
-func (a *app) copyMarkdown(s *history.Session, level history.MarkdownLevel, label string) {
+func (a *app) copyMarkdown(sv ui.Services, s *history.Session, level history.MarkdownLevel, label string) {
 	md := history.Markdown(history.MarkdownMeta{
 		Title:         a.v(s.Title),
 		Agent:         s.Source.Name(),
@@ -202,7 +203,7 @@ func (a *app) copyMarkdown(s *history.Session, level history.MarkdownLevel, labe
 		End:           s.End,
 		SessionID:     s.ID,
 	}, a.entries, level)
-	a.copyText(md)
+	sv.WriteClipboard(md)
 	masked := ""
 	if a.mask {
 		masked = ", masked"
@@ -331,18 +332,18 @@ func (a *app) conversation(c *ui.Context) {
 			ui.Row(c).Gap(8).Children(func() {
 				if cmd := s.Source.ResumeCommand(s); cmd != "" {
 					if ui.Button(c.Key("copy-resume"), "Copy resume command").Clicked() {
-						a.copyText(cmd) // クリップボードには実際に使える値を入れる
+						c.Services().WriteClipboard(cmd) // クリップボードには実際に使える値を入れる
 						a.status = "Copied: " + a.v(cmd)
 					}
 				}
 				if ui.Button(c.Key("copy-id"), "Copy session ID").Clicked() {
-					a.copyText(s.ID)
+					c.Services().WriteClipboard(s.ID)
 					a.status = "Copied: " + s.ID
 				}
 				ui.MenuButton(c.Key("copy-md"), "Copy as Markdown", func(m *ui.Menu) {
 					for _, opt := range markdownChoices {
 						if m.Item(opt.label).Disabled(a.entriesLoading).Chosen() {
-							a.copyMarkdown(s, opt.level, opt.label)
+							a.copyMarkdown(c.Services(), s, opt.level, opt.label)
 						}
 					}
 				})
@@ -488,7 +489,6 @@ func main() {
 	}
 	a.redactor = redact.FromEnvironment(words)
 	a.loading = true
-	a.copyText = func(s string) { mygo.Clipboard.WriteText(s) }
 	mygo.App.WhenReady(func() {
 		var win *mygo.Window
 		a.loadEntries = func(s *history.Session, mask bool) {

@@ -79,12 +79,12 @@ Claude Code の過去のセッションを一覧して読む GUI を mygo で作
 - `ui/markdown` の `markdown.View(c, text, &opts)` … Claude の返答を Markdown で表示。毎フレーム文字列を渡しても、差分しか解析し直さない
 - `ui.Collapsible(c, label, &open, fn)` … ツール呼び出し・thinking・compact の要約を折りたたむ。開閉状態の `bool` は自分で持つ（ここではエントリと同じ長さの `[]bool`）
 - `Text(...).Selectable()` … 本文を選んでコピーできるようにする。`Font("monospace")` で等幅フォント
-- `mygo.Clipboard.WriteText` … 再開用コマンド（`cd ... && claude --resume <id>`）をコピー
+- `c.Services().WriteClipboard` … 再開用コマンド（`cd ... && claude --resume <id>`）をコピー（最初は `mygo.Clipboard.WriteText` を関数フィールド越しに使っていたが置き換えた。[mygo-testing.md](./mygo-testing.md)）
 
 気づいたこと:
 
 - **読み込みは goroutine + `win.Update`** という examples/async の形がそのまま使えた。起動時に全セッションを集計し、セッションを選ぶたびにその会話を読み込む
-- 副作用（読み込み・クリップボード）を app の関数フィールドにしておくと、`ui.NewTester` のテストで同期実装に差し替えられる。テスト用のデータは `testdata/` に置いた
+- 非同期の読み込みを app の関数フィールドにしておくと、`ui.NewTester` のテストで同期実装に差し替えられる。クリップボードは view で `c.Services().WriteClipboard` を使えば差し替え不要で、テストでは `tt.Clipboard()` で読める。テスト用のデータは `testdata/` に置いた
 - `ListState` には `Changed()` が無い（`List(...)` が返す Element の方にある）。今回は `selected` の値を毎フレーム見て、表示中のセッションと違えば読み込む形にした
 - リストの選択行はアクセント色の背景になるので、行内の補足テキストに `TextMuted` を使うと読みにくい。選択中は `t.AccentText` に切り替えた
 - 実データ（150 セッション）でも、一覧の構築は 0.25 秒程度、スクロールも引っかからない

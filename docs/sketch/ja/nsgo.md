@@ -115,7 +115,7 @@ go tool nsgo build -target macos_arm64 apps/agent-history/nsgo  # .app (16 MB, 4
 | `a.shown`（表示する entries の index を毎回作り直す） | `core.NewMemoFunc` で `entries` と `showTools` / `showThinking` から作る。チェックボックスを切り替えると List の件数と行が更新される |
 | `ui.Spinner` | `ui.Spinner{Label}` |
 | `win.Update(func(){...})` | `cx.Post(func(){...})`（どの goroutine から呼んでもよい） |
-| `mygo.Clipboard.WriteText` | `cx.SetClipboard(text)`。テストでは `app.Clipboard` で中身を見られるので、**差し替え用の関数フィールドが要らない** |
+| `mygo.Clipboard.WriteText`（その後 mygo 版も `c.Services().WriteClipboard` に変えた） | `cx.SetClipboard(text)`。テストでは `app.Clipboard` で中身を見られるので、**差し替え用の関数フィールドが要らない** |
 
 テスト（`main_test.go`）で確かめたこと: 一覧の表示、マスクで一覧のタイトルが伏せられる、検索とエージェントの絞り込みで件数が変わる、行のクリックと矢印キーで会話が切り替わる、Markdown の見出しが出る、コピーした Markdown の中身、マスクのチェックボックスが最初からオン、マスクを外すと本文のメールアドレスが出る、コピーの粒度（Prompts only では返答が入らない）、Tools / Thinking が既定で隠れていて切り替えで出入りする、`Entries` がエラーを返したときにエラーと読めたぶんの両方が出る、ツール・Thinking・Summary が畳まれていて開ける、作業中の発言と Notice の表示、プロジェクト見出しとホームの `~` 表示、メタ情報、ID と再開コマンドのコピー（再開できないエージェントにはボタンが無い）、矢印キーで見出しの行を飛ばす（計 8 テスト、ほかにスクロールのテスト 1 つ）。読み込みは goroutine + `cx.Post` のままで、テスト側は `app.WaitFor("text:3 sessions", 5*time.Second)` で待つだけでよかった（mygo 版では読み込みを同期にする差し替えを入れていた）。
 
@@ -162,7 +162,7 @@ go tool nsgo build -target macos_arm64 apps/agent-history/nsgo  # .app (16 MB, 4
 | 書いてみて 11（Segmented が狭いと重なる） | nsgo では等幅に縮んで文字が重なった | mygo では **重ならないが、はみ出した後ろのセグメントが切れて見えなくなる**。`ui.Render` で「All 812 / Claude Code 420 / Codex 211 / Devin 97 / OpenCode 84」を幅 600 と 240 で描いて確かめた（幅 240 では 3 つ目の途中で切れた）。セグメントは中身の幅で、等幅ではない。mygo 版の agent-history も狭いサイドバーでは同じ問題を抱えている（ドロップダウンの `ui.Select` はある） |
 | 対応表: `markdown.View` → `ui.TextView` | nsgo はコードのハイライト・ストリーミング表示まである | mygo の `ui/markdown` も **コードブロックのハイライト**（コードエディタと同じトークナイザ）と **ストリーミング**（`markdown.Stream`、トークンを一定の速さで見せる）、ブロックをまたいだ選択がある |
 | 対応表: `ui.Badge` / アイコン | nsgo は Badge と同梱の Lucide | mygo にも `ui.Badge` がある。アイコンは `ui.Icon` に SVG を渡す形で、**アイコン集は同梱しない**（Lucide などの SVG を embed する） |
-| 対応表: クリップボード | `cx.SetClipboard` なら差し替え不要（mygo は関数フィールドで差し替えた） | mygo も view から **`c.Services().WriteClipboard`** を使えば `tt.Clipboard()` で読め、差し替えが要らない。`mygo.Clipboard.WriteText` を Tester の中で呼ぶとテストが固まる |
+| 対応表: クリップボード | `cx.SetClipboard` なら差し替え不要（mygo は関数フィールドで差し替えた） | mygo も view から **`c.Services().WriteClipboard`** を使えば `tt.Clipboard()` で読め、差し替えが要らない（mygo 版の agent-history もそう書き換えた）。`mygo.Clipboard.WriteText` を Tester の中で呼ぶとテストが固まる |
 | テスト / 書いてみて 1（非同期のままテスト） | mygo 版は読み込みを同期に差し替えた | これは **mygo では本当にできない**。Tester には `Window.Update` に当たるものが無く、`WaitFor` のような待ち合わせも無い |
 | 書いてみて 3, 13（セレクタ） | nsgo は `text:` 部分一致・`"…"` 完全一致・正規表現・` >> ` の入れ子・`id:` | mygo の Tester は `Click` / `Find` が **表示文字列か `Label` の完全一致**、`HasText` が部分一致だけ。正規表現・入れ子・key での指定は無い（key で探せるのは automation の `act` / `tree`） |
 | 書いてみて 5, 6（行の使い回し、index の範囲外） | nsgo の List の行は使い回される | mygo は immediate mode で毎フレーム行を組み立てるので、この種の問題は起きない（同一性は `Key` で与える） |
