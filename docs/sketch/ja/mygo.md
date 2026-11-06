@@ -122,6 +122,7 @@ docs/ui/ に 1 コンポーネント 1 ページで揃っている。おおま�
 - コレクション: List（仮想化）, Table, Tree, Outline, GridView
 - その他: Markdown 表示（ストリーミング対応）, Calendar/Date/Time input, Color picker, Chart, Dialog/Popover/Toast/Tooltip, Tabs/Sidebar/Split, Router（ページ遷移）, WebView 埋め込み, Video
 - 描画系: Canvas 描画, シェーダー（Go 構文）, アニメーション / トランジション / スプリング
+- 無い部品は自分で作れる（見た目の無い `*Base`、`Draw` と Painter、`Dragged` などの入力）: [mygo-custom-widgets.md](./mygo-custom-widgets.md)
 - アクセシビリティ（スクリーンリーダー対応）、RTL、i18n、インスペクター
 
 ## plugins
@@ -195,5 +196,6 @@ document.body.textContent = await Greeter.greet("Ada");
 ## 関連
 
 - 実際に examples を書いて動かした結果: [mygo-examples.md](./mygo-examples.md)
+- 部品を自作する方法: [mygo-custom-widgets.md](./mygo-custom-widgets.md)
 - テストの仕方（実ウィンドウの E2E を含む）とスクリーンキャプチャ: [mygo-testing.md](./mygo-testing.md)
 - nsgo との比較: [nsgo.md](./nsgo.md) の「mygo との違い」と「mygo 側の対応状況の確認」
