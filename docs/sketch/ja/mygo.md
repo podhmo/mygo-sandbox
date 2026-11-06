@@ -5,6 +5,7 @@
 - 一次資料: モジュール同梱の `docs/`（サイトの `/docs` はこの markdown から生成されている。`website/README.md` 参照）。
   手元では `go list -m -f '{{.Dir}}' github.com/egoist/mygo` で場所が分かる。
 - サイトには LLM 向けの `/llms.txt`・`/llms-full.txt` があり、各ページの URL に `.md` を付けると markdown 版が取れる。
+- 読む順の目安: `docs/getting-started.md` → `docs/ui/README.md` → 使う部品の `docs/ui/<部品>.md`（1 部品 1 ページ、プレビュー付き）。`docs/architecture.md` は数千行あり、OS ごとの実装を調べるとき用。書き方の決まりは `ui/doc.go` と、`mygo init` が生成するエージェント向けの手引き（`cmd/mygo/template/shared/.agents/skills/mygo-maintenance/SKILL.md`）が一番まとまっている。
 
 ## 一言でいうと
 
@@ -22,6 +23,8 @@ Go でデスクトップアプリを作るフレームワーク。1 つのウィ
 - デスクトップ API: ウィンドウ、メニュー、トレイ、ダイアログ、通知、グローバルショートカット、ディープリンク、ファイル関連付け、ファイル監視、secrets など
 - 配布: .app/.dmg、Windows インストーラー、.deb、PKGBUILD、署名・公証、差分の自動アップデート（Sparkle 風）
 - Native UI はブラウザ向けにも動かせる（WebAssembly + WebGL 2。`mygo dev -web`）
+
+対象は **デスクトップ（macOS / Windows / Linux）とブラウザ** だけで、iOS / Android は無い。
 
 ## 必要環境
 
@@ -79,6 +82,16 @@ go func() {
 - `Window.Invalidate` は再描画だけを要求する（状態を自前でロックしている場合）
 - view の中では `c.Invalidate()` で次フレームを、`c.After(d)` で d 後のフレームを要求できる（時計など）
 
+### 書くときの決まり（寿命と同一性）
+
+immediate mode なので「毎回組み立てるだけ」に見えるが、内部では要素の状態（フォーカス、スクロール位置、入力中の文字など）を保っていて、次の決まりがある（SKILL.md と `ui/doc.go` より）。
+
+- **`*ui.Context` と要素（`ui.Element`）を保存しない**。要素は次の組み立てで無効になる（開発中と Tester では panic、本番では何もしない）。持ち越してよいのはアプリのデータ、ウィジェットの状態、`ui.Handle`（`.Bind(&handle)` で要素に結びつける。フォーカスや位置を後から問い合わせる用）。
+- **状態を持つ部品には組み立てる前に `c.Key(k)`** で同一性を与える。リストの行は `.ItemKey`。
+- **1 つのイベントで view が何回か組み立て直されることがある**。view の中で無条件に副作用（読み込みの開始、ファイル書き込み）を起こさない。`Clicked()` などで条件を付けるか、`OnClick` / `OnChange` を使う。`Changed` / `Submitted` は次の組み立てで見える。
+- **別 goroutine に渡してよいのは `c.Services()`**（クリップボード、URL を開く、`Invalidate`）。モデルの更新は `Window.Update` で行う。
+- これらは `go tool mygo vet .` が検査する（Go の vet に加えて、組み立て中の値の保持や goroutine へのキャプチャを見る）。
+
 ### テスト（ウィンドウ無し）
 
 `ui.NewTester(view, w, h)` でウィンドウ無しに view を動かせる。`go test` だけで UI のテストができるのが大きい。
@@ -94,7 +107,10 @@ tt.Advance(time.Second)     // テスター独自の時計を進める（sleep �
 img := tt.Image()           // 最後のフレームを *image.RGBA で取れる → スナップショット
 ```
 
-ビルドしたアプリを外から E2E で操作したい場合は automation プラグインがある（試した結果は [mygo-testing.md](./mygo-testing.md)）。
+- 同じテストを実ウィンドウで回す仕組みは無い。実ウィンドウで試すなら automation プラグイン（下の plugins）で別に E2E を書く。
+- Tester には `Window.Update` に当たるものが無いので、goroutine を使う読み込みはテストで同期に差し替える。
+
+詳しくは [mygo-testing.md](./mygo-testing.md)（Tester の機能一覧、automation の使い方、スクリーンキャプチャ）。
 
 ### コンポーネント
 
@@ -108,6 +124,20 @@ docs/ui/ に 1 コンポーネント 1 ページで揃っている。おおま�
 - 描画系: Canvas 描画, シェーダー（Go 構文）, アニメーション / トランジション / スプリング
 - アクセシビリティ（スクリーンリーダー対応）、RTL、i18n、インスペクター
 
+## plugins
+
+`github.com/egoist/mygo/plugins/...` にある公式のもの（`docs/plugins.md`）。Web ページ向けは Go 側を `mygo.Use` で登録し、JS 側を npm から入れる。Native UI 向けはパッケージを import して view の中で使うだけ（`mygo.Use` 不要）。
+
+| plugin | 内容 |
+|---|---|
+| Automation | 別プロセス（E2E テスト・エージェント）から動いているアプリを操作する Unix ソケット。要素の木、操作、入力、メニュー、PNG キャプチャ。リリースビルドには入らない |
+| Terminal | Native UI のターミナル（Ghostty のエミュレータ） |
+| Glass | Native UI で macOS の Liquid Glass（どの OS でも） |
+| Loading | loading.dev の 29 種のローディング表示 |
+| Game | 固定ステップのゲームループ、入力、2D カメラ、ゲームパッド |
+| Updater | Sparkle 風の自動アップデート画面（Native UI でも Web でも） |
+| Fetch / WebSocket / SQLite / Watch | Web ページ向け。CORS 無しの fetch、ヘッダ付き WebSocket、SQLite（cgo 無し）、ファイル監視 |
+
 ## CLI (`mygo`)
 
 `cmd/mygo` が CLI。`go get -tool github.com/egoist/mygo/cmd/mygo` で go.mod の tool として固定し、`go tool mygo ...` で実行するのが推奨。
@@ -115,17 +145,25 @@ docs/ui/ に 1 コンポーネント 1 ページで揃っている。おおま�
 | コマンド | 内容 |
 |---|---|
 | `mygo init [-template native] <dir>` | プロジェクト雛形を作る。native なら Go モジュールだけ（main.go / main_test.go / mygo.json / resources/icon.png） |
-| `mygo dev [dir]` | 開発用アプリをビルドして起動し、`.go` や設定の変更でリビルド・再起動（live reload）。`-web` でブラウザ版 |
-| `mygo build [dir]` | パッケージ化。macOS なら `.app` と `.dmg`。`-platform darwin/universal,windows/amd64,linux/amd64` でクロスビルド |
+| `mygo dev [dir]` | 開発用アプリをビルドして起動し、`.go` や設定の変更でリビルド・再起動（live reload）。**再起動なのでアプリの状態は消える**。コンパイルに失敗したら動いている方を残す。ターミナルで `r` + Enter で手動の再ビルド。`-web` でブラウザ版 |
+| `mygo build [dir]` | パッケージ化。macOS なら `.app` と `.dmg`。`-platform darwin/universal,windows/amd64,linux/amd64` でクロスビルド。`-debug` でインスペクターなど開発用の機能を残す |
 | `mygo generate` | Web フロント用の TS クライアント生成 |
 | `mygo doctor` | 環境チェック |
-| `mygo vet` | ビルド値を struct などに保持していないかチェック |
+| `mygo vet [dir]` | Go の vet に加えて、組み立て中の値（要素など）の保持や goroutine へのキャプチャを検査する（上の「書くときの決まり」） |
+| `mygo migrate-ui [dir]` | mygo のバージョンを上げたときの UI の API の書き換えを表示し、`-write` で適用する |
+| `mygo install-skills [dir]` | 同梱のエージェント向け skill（`.agents/skills/mygo-maintenance/`）を入れる・更新する |
 | `mygo keygen` | アップデート署名用の鍵生成 |
 
 設定ファイル:
 
-- native: `mygo.json`（`name` / `identifier` / `version` / `out` など）
-- web: `mygo.config.ts`
+- `mygo.json` か `mygo.config.ts` の **どちらか一方**（両方は不可）。項目は同じ（`name` / `identifier` / `version` / `out` / `macos.infoPlist` など）。
+- `mygo init -template native` は `mygo.json`（読むのに JS の実行環境が要らない）、Web の雛形は `mygo.config.ts` を作る。Native UI なら無くても動く（[mygo-examples.md](./mygo-examples.md) の 6）。
+
+### 開発中の道具
+
+- **インスペクター**: 開発ビルドの窓で `F12` / `Alt+Cmd+I`。Chrome の DevTools 風に、要素の木（`Key` や `Label` 付き）、スタイル・ボックス、要素を指して選ぶピッカー、フレームの時間（Performance）、問題（`Key` の重複など）が見られる。`go build` のバイナリにも入る（`-tags mygo_noinspector` で外す）。`mygo build` のリリースでは外れる。
+- 遅いフレームのログ: 環境変数 `MYGO_FRAME_STATS`。
+- 目安の性能: `docs/ui/performance.md` に Tester（CPU 描画）でのフレーム時間がある。例: 100 万行のリストの見えている行だけで 14.5 µs、50 KB の Markdown 全体で 1.3 ms（Apple M5）。
 
 ## Web page 版（今回は未検証）
 
@@ -158,3 +196,4 @@ document.body.textContent = await Greeter.greet("Ada");
 
 - 実際に examples を書いて動かした結果: [mygo-examples.md](./mygo-examples.md)
 - テストの仕方（実ウィンドウの E2E を含む）とスクリーンキャプチャ: [mygo-testing.md](./mygo-testing.md)
+- nsgo との比較: [nsgo.md](./nsgo.md) の「mygo との違い」と「mygo 側の対応状況の確認」
