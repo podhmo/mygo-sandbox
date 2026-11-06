@@ -3,3 +3,5 @@ build/
 *.png.out
 dist/
 .nsgo/
+
+agent-history

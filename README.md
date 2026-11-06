@@ -32,6 +32,7 @@ go tool mygo build apps/agent-history  # .app / .dmg を作る
 - [mygo-testing.md](docs/sketch/ja/mygo-testing.md): mygo のテストの仕方（Tester と automation プラグインでの実ウィンドウ E2E）とスクリーンキャプチャ。nsgo との比較
 - [mygo-custom-widgets.md](docs/sketch/ja/mygo-custom-widgets.md): mygo に無い部品の作り方（Draw・入力・base・アクセシビリティ）と、作って動かした記録
 - [nsgo.md](docs/sketch/ja/nsgo.md): nsgo（NSH の Go 移植、ネイティブビューで描く UI エンジン）の調査、事前準備、examples、agent-history の試作
+- [linux-wsl.md](docs/sketch/ja/linux-wsl.md): WSL2 + WSLg（Ubuntu 26.04）での追試。動いたもの・動かないもの、GTK4 のローカル展開、GPU（d3d12）の話
 - [claude-code-session-files.md](docs/sketch/ja/claude-code-session-files.md) / [codex-session-files.md](docs/sketch/ja/codex-session-files.md) / [devin-session-files.md](docs/sketch/ja/devin-session-files.md) / [opencode-session-files.md](docs/sketch/ja/opencode-session-files.md): セッション履歴ファイルの形式
 - [agent-history-masking.md](docs/sketch/ja/agent-history-masking.md): マスキング対象の定義
 - [agent-history-codex-task.md](docs/sketch/ja/agent-history-codex-task.md): Codex 対応を Codex に依頼したときの依頼文
