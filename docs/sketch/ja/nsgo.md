@@ -93,8 +93,8 @@ go tool nsgo build -target macos_arm64 apps/agent-history/nsgo  # .app (16 MB, 4
 
 最初は `base`（見た目なし）と Tailwind クラスで組み、そのあと **`ui` パッケージ（Onevra のテーマ）の部品に置き換えて見た目を整えた**。
 
-実装したもの（元のアプリの一部）: セッション一覧（仮想化リスト、クリックと矢印キーで選択）、検索、エージェントでの絞り込み（件数つき）、セッションを選ぶと会話を別 goroutine で読み込んで表示、本文は Markdown を `ui.TextView` で表示、発言の種類をバッジで表示、マスクの切り替え（一覧・本文とも）、会話を Markdown にしてクリップボードへコピー、サイドバーの開閉と幅の変更。
-実装していないもの: プロジェクト見出し、Tools / Thinking の表示切り替え、折りたたみ、コピーの粒度メニュー、Resume コマンド。
+実装したもの（元のアプリの一部）: セッション一覧（仮想化リスト、クリックと矢印キーで選択）、検索、エージェントでの絞り込み（件数つき）、セッションを選ぶと会話を別 goroutine で読み込んで表示、本文は Markdown を `ui.TextView` で表示、発言の種類をバッジで表示、マスクの切り替え（一覧・本文とも）、会話を Markdown にしてクリップボードへコピー（Prompts only / Prompts and replies / Prompts, replies and thinking のメニュー）、Tools / Thinking の表示切り替え（既定は非表示）、会話の読み込みエラーの表示（読めたぶんの上に出す）、サイドバーの開閉と幅の変更。
+実装していないもの: プロジェクト見出し、ツール呼び出し・Thinking・Summary の折りたたみ、Notice の 1 行表示、ユーザー発言の `Queued` 表示、ヘッダーのメタ情報（ブランチ・期間・prompt 数・サイズ）、Copy resume command / Copy session ID、ホームを `~` にするパス表示。
 
 対応表（右が `ui` 版で使ったもの）:
 
@@ -108,12 +108,14 @@ go tool nsgo build -target macos_arm64 apps/agent-history/nsgo  # .app (16 MB, 4
 | `ui.Checkbox` | `ui.Checkbox{Text, Checked, OnChange}` |
 | `markdown.View` | `ui.TextView{MarkdownFunc, Selectable: true}`（`textview.TextView` に ui の文字・色を当てたもの）。GitHub 風の Markdown、コードのハイライト（`highlight.New(cx)`）、ストリーミング表示まである |
 | 種類の表示 | `ui.Badge{TextFunc, ToneFunc}`（`ToneAccent` / `ToneInfo` / `ToneDanger` …） |
-| `ui.Button` / `ui.MenuButton` | `ui.Button{Text, Icon: lucide.Copy, Variant: ui.ButtonSecondary, Small: true}`。アイコンは同梱の Lucide |
+| `ui.Button` | `ui.Button{Text, Icon: lucide.Copy, Variant: ui.ButtonSecondary, Small: true}`。アイコンは同梱の Lucide |
+| `ui.MenuButton(c, "Copy as Markdown", func(m){ m.Item(...).Chosen() })` | `ui.Menu{Trigger: ui.Button{...}, Children: []core.Node{ui.MenuItem{Text, Disabled, OnSelect}}}`。`Trigger` のボタンの `OnPress` / `Disabled` は使われないので、読み込み中に選べなくするのは各 `MenuItem.Disabled` で行う。テストでは `app.Press("id:copy")` で開いて `app.Press("role:menuitem Prompts only")` で選ぶ |
+| `a.shown`（表示する entries の index を毎回作り直す） | `core.NewMemoFunc` で `entries` と `showTools` / `showThinking` から作る。チェックボックスを切り替えると List の件数と行が更新される |
 | `ui.Spinner` | `ui.Spinner{Label}` |
 | `win.Update(func(){...})` | `cx.Post(func(){...})`（どの goroutine から呼んでもよい） |
 | `mygo.Clipboard.WriteText` | `cx.SetClipboard(text)`。テストでは `app.Clipboard` で中身を見られるので、**差し替え用の関数フィールドが要らない** |
 
-テスト（`main_test.go`）で確かめたこと: 一覧の表示、マスクで一覧のタイトルが伏せられる、検索とエージェントの絞り込みで件数が変わる、行のクリックと矢印キーで会話が切り替わる、Markdown の見出しが出る、コピーした Markdown の中身、マスクのチェックボックスが最初からオン、マスクを外すと本文のメールアドレスが出る。読み込みは goroutine + `cx.Post` のままで、テスト側は `app.WaitFor("text:3 sessions", 5*time.Second)` で待つだけでよかった（mygo 版では読み込みを同期にする差し替えを入れていた）。
+テスト（`main_test.go`）で確かめたこと: 一覧の表示、マスクで一覧のタイトルが伏せられる、検索とエージェントの絞り込みで件数が変わる、行のクリックと矢印キーで会話が切り替わる、Markdown の見出しが出る、コピーした Markdown の中身、マスクのチェックボックスが最初からオン、マスクを外すと本文のメールアドレスが出る、コピーの粒度（Prompts only では返答が入らない）、Tools / Thinking が既定で隠れていて切り替えで出入りする、`Entries` がエラーを返したときにエラーと読めたぶんの両方が出る。読み込みは goroutine + `cx.Post` のままで、テスト側は `app.WaitFor("text:3 sessions", 5*time.Second)` で待つだけでよかった（mygo 版では読み込みを同期にする差し替えを入れていた）。
 
 ### 書いてみて分かったこと
 

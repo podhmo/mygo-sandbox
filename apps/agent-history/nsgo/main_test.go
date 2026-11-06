@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +22,7 @@ type fakeSource struct {
 	id, name, assistant string
 	sessions            []*history.Session
 	entries             map[string][]history.Entry
+	errs                map[string]error
 }
 
 func (f *fakeSource) ID() string                            { return f.id }
@@ -27,7 +30,7 @@ func (f *fakeSource) Name() string                          { return f.name }
 func (f *fakeSource) AssistantName() string                 { return f.assistant }
 func (f *fakeSource) Sessions() ([]*history.Session, error) { return f.sessions, nil }
 func (f *fakeSource) Entries(s *history.Session) ([]history.Entry, error) {
-	return f.entries[s.ID], nil
+	return f.entries[s.ID], f.errs[s.ID]
 }
 func (f *fakeSource) ResumeCommand(s *history.Session) string { return "" }
 
@@ -40,6 +43,7 @@ func fixtures() []history.Source {
 	}
 	alpha.entries = map[string][]history.Entry{"a1": {
 		{Kind: history.KindUser, Time: at(1), Text: "Go で hello world"},
+		{Kind: history.KindThinking, Time: at(1), Text: "考え中"},
 		{Kind: history.KindTool, Time: at(1), Tool: "Bash", Text: "go run .", Result: "hello world"},
 		{Kind: history.KindAssistant, Time: at(2), Text: "## できました\n\n- `main.go` を作成\n- **go run** で確認"},
 	}}
@@ -106,9 +110,17 @@ func TestOpenMaskAndCopy(t *testing.T) {
 	app.WaitFor("text:README を直して", 5*time.Second)
 	app.Find("text:直しました。") // Markdown の強調は TextView で太字の span になる
 
-	app.Press("id:copy")
+	app.Press("id:copy") // Copy as Markdown のメニューを開く
+	app.Press("role:menuitem Prompts and replies")
 	if !strings.Contains(app.Clipboard, "README を直して") || !strings.Contains(app.Clipboard, "直しました。") {
 		t.Errorf("clipboard = %q", app.Clipboard)
+	}
+	app.Find("text:Copied prompts and replies (" + itoa(strings.Count(app.Clipboard, "\n")) + " lines, masked)")
+
+	app.Press("id:copy")
+	app.Press("role:menuitem Prompts only")
+	if !strings.Contains(app.Clipboard, "README を直して") || strings.Contains(app.Clipboard, "直しました。") {
+		t.Errorf("prompts only should drop the replies: %q", app.Clipboard)
 	}
 
 	// マスクはオンなので本文のメールアドレスは伏せられる
@@ -153,4 +165,38 @@ func TestNarrowSidebar(t *testing.T) {
 	app.WaitFor("text:1 sessions", time.Second)
 	app.Find("text:Alpha Agent (1)")
 	app.Screenshot("narrow")
+}
+
+func itoa(n int) string { return fmt.Sprint(n) }
+
+func TestToolsAndThinking(t *testing.T) {
+	app := start(t)
+	app.Press("label:hello world を書く")
+	app.WaitFor("text:Go で hello world", 5*time.Second)
+	// 既定では隠れている
+	if app.Exists("text:Tool: Bash") || app.Exists("text:考え中") {
+		t.Fatalf("tools and thinking should be hidden by default: %q", app.Texts())
+	}
+	app.Press("id:tools")
+	app.WaitFor("text:Tool: Bash", time.Second)
+	app.Press("id:thinking")
+	app.WaitFor("text:考え中", time.Second)
+	app.Screenshot("tools")
+	app.Press("id:tools")
+	app.WaitForGone("text:Tool: Bash", time.Second)
+	app.Find("text:考え中")
+}
+
+func TestEntriesError(t *testing.T) {
+	broken := &fakeSource{id: "broken", name: "Broken Agent", assistant: "Broken"}
+	broken.sessions = []*history.Session{{Source: broken, ID: "x1", Title: "途中で壊れたログ", Cwd: "/tmp/demo", Start: at(1), End: at(2), Prompts: 1}}
+	broken.entries = map[string][]history.Entry{"x1": {{Kind: history.KindUser, Time: at(1), Text: "読めた部分"}}}
+	broken.errs = map[string]error{"x1": errors.New("x1.jsonl: line 3: unexpected end of JSON input")}
+	a := App{Sources: []history.Source{broken}, Redactor: redact.New(redact.Options{})}
+	app := nsgotest.Start(t, a.Root, nsgotest.Size(1000, 700), nsgotest.Environment(core.Environment{OS: core.OSMacOS, Idiom: core.IdiomDesktop, Locale: "en-US"}))
+	app.WaitFor("text:1 sessions", 5*time.Second)
+	app.Press("label:途中で壊れたログ")
+	app.WaitFor("id:entries-error", 5*time.Second)
+	app.Find("text:x1.jsonl: line 3: unexpected end of JSON input")
+	app.Find("text:読めた部分") // 読めたぶんは表示する
 }

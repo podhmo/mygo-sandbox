@@ -60,6 +60,9 @@ func (opt App) Root(cx *core.Scope) core.Node {
 	current := core.NewSignal[*history.Session](cx, nil)
 	entries := core.NewSignalFunc[[]history.Entry](cx, nil, always)
 	entriesLoading := core.NewSignal(cx, false)
+	entriesErr := core.NewSignal(cx, "")
+	showTools := core.NewSignal(cx, false) // 元のアプリと同じく、ツール呼び出しと推論は既定で隠す
+	showThinking := core.NewSignal(cx, false)
 	status := core.NewSignal(cx, "")
 	sidebarOpen := core.NewSignal(cx, true)
 	width := opt.SidebarWidth
@@ -119,9 +122,10 @@ func (opt App) Root(cx *core.Scope) core.Node {
 			return
 		}
 		entries.Set(nil)
+		entriesErr.Set("")
 		entriesLoading.Set(true)
 		go func() {
-			es, _ := s.Source.Entries(s)
+			es, err := s.Source.Entries(s) // 途中で失敗しても読めたぶんは返る
 			if m {
 				es = opt.Redactor.Entries(es)
 			}
@@ -130,6 +134,9 @@ func (opt App) Root(cx *core.Scope) core.Node {
 					return // 読み込み中に選択かマスクが変わった
 				}
 				entries.Set(es)
+				if err != nil {
+					entriesErr.Set(err.Error())
+				}
 				entriesLoading.Set(false)
 			})
 		}()
@@ -154,7 +161,20 @@ func (opt App) Root(cx *core.Scope) core.Node {
 		}
 	})
 
-	copyMarkdown := func() {
+	// 表示する entries。Tools / Thinking の切り替えはコピーには影響しない (元のアプリと同じ)。
+	shown := core.NewMemoFunc(cx, func() []history.Entry {
+		tools, thinking := showTools.Get(), showThinking.Get()
+		var out []history.Entry
+		for _, e := range entries.Get() {
+			if e.Kind == history.KindTool && !tools || e.Kind == history.KindThinking && !thinking {
+				continue
+			}
+			out = append(out, e)
+		}
+		return out
+	}, always)
+
+	copyMarkdown := func(level history.MarkdownLevel, label string) {
 		s := current.GetUntracked()
 		if s == nil {
 			return
@@ -162,9 +182,13 @@ func (opt App) Root(cx *core.Scope) core.Node {
 		md := history.Markdown(history.MarkdownMeta{
 			Title: v(s.Title), Agent: s.Source.Name(), AssistantName: s.Source.AssistantName(),
 			Project: v(s.Cwd), Branch: v(s.GitBranch), Start: s.Start, End: s.End, SessionID: s.ID,
-		}, entries.GetUntracked(), history.PromptsAndReplies)
+		}, entries.GetUntracked(), level) // マスクがオンなら entries は伏せた状態で読み込まれている
 		cx.SetClipboard(md)
-		status.Set(fmt.Sprintf("Copied Markdown (%d lines)", strings.Count(md, "\n")))
+		masked := ""
+		if mask.GetUntracked() {
+			masked = ", masked"
+		}
+		status.Set(fmt.Sprintf("Copied %s (%d lines%s)", strings.ToLower(label), strings.Count(md, "\n"), masked))
 	}
 
 	// エージェントの絞り込み。Count で各エージェントの件数を出す。
@@ -301,16 +325,32 @@ func (opt App) Root(cx *core.Scope) core.Node {
 			return "Agent History"
 		}, 15, ui.Semibold, colors.Text),
 	}
+	markdownChoices := []struct {
+		label string
+		level history.MarkdownLevel
+	}{
+		{"Prompts only", history.PromptsOnly},
+		{"Prompts and replies", history.PromptsAndReplies},
+		{"Prompts, replies and thinking", history.PromptsRepliesThink},
+	}
+	var copyItems []core.Node
+	for i, c := range markdownChoices {
+		copyItems = append(copyItems, ui.MenuItem{Text: c.label, TestID: fmt.Sprintf("copy-%d", i),
+			Disabled: func() bool { return current.Get() == nil || entriesLoading.Get() },
+			OnSelect: func() { copyMarkdown(c.level, c.label) }})
+	}
 	actions := []core.Node{
 		ui.Textf(status.Get, 12, ui.Regular, colors.Muted),
-		ui.Button{TestID: "copy", Text: "Copy Markdown", Icon: lucide.Copy, Variant: ui.ButtonSecondary, Small: true,
-			Disabled: func() bool { return current.Get() == nil || entriesLoading.Get() },
-			OnPress:  copyMarkdown},
+		ui.Checkbox{TestID: "tools", Text: "Tools", Checked: showTools.Get, OnChange: showTools.Set},
+		ui.Checkbox{TestID: "thinking", Text: "Thinking", Checked: showThinking.Get, OnChange: showThinking.Set},
+		ui.Menu{TestID: "copy", Label: "Copy as Markdown",
+			Trigger:  ui.Button{Text: "Copy as Markdown", Icon: lucide.Copy, Variant: ui.ButtonSecondary, Small: true},
+			Children: copyItems},
 	}
 
 	entryRow := func(cx *core.Scope, r core.ListRow) core.Node {
 		at := func() history.Entry {
-			if es := entries.Get(); r.Index() < len(es) {
+			if es := shown.Get(); r.Index() < len(es) {
 				return es[r.Index()]
 			}
 			return history.Entry{}
@@ -372,7 +412,16 @@ func (opt App) Root(cx *core.Scope) core.Node {
 					},
 					Else: func(*core.Scope) core.Node {
 						return core.List{TestID: "entries", Style: core.Style{FlexGrow: 1}, EstimatedSize: 120,
-							Count:     func() int { return len(entries.Get()) },
+							// 読み込みに失敗したら、読めたぶんの上にエラーを出す
+							Header: core.Show{When: func() bool { return entriesErr.Get() != "" }, Then: func(*core.Scope) core.Node {
+								t := ui.Textf(func() string { return v(entriesErr.Get()) }, 13, ui.Regular, colors.Danger)
+								t.TestID = "entries-error"
+								return core.View{Style: core.Style{Padding: core.Symmetric(10, 20)}, Children: []core.Node{t}}
+							}},
+							Empty: core.View{Style: core.Style{Padding: core.Symmetric(10, 20)}, Children: []core.Node{
+								ui.Text("No messages to show", 13, ui.Regular, colors.Muted),
+							}},
+							Count:     func() int { return len(shown.Get()) },
 							Row:       entryRow,
 							Separator: func(*core.Scope) core.Node { return core.View{Style: core.Style{Height: core.Pt(1), Margin: core.Edges{Left: 20, Right: 20}}, StyleFunc: ui.Filled(colors.Line)} },
 						}
