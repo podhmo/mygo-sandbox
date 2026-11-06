@@ -46,7 +46,9 @@ func (a *app) view(c *ui.Context) {
 				name string
 				v    *float64
 			}{{"Volume", &a.volume}, {"Tone", &a.tone}} {
-				ui.Column(c).Gap(4).Children(func() {
+				// 下の「Volume 30%」の幅は数字で変わるので、列の幅を固定しないと
+				// 左のつまみを回すたびに右の列が左右にずれる。
+				ui.Column(c).Width(100).Gap(4).Children(func() {
 					if widget.Knob(c.Key(k.name), k.v, k.name).Changed() {
 						a.changes++
 					}

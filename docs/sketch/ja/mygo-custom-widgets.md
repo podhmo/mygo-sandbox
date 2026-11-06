@@ -54,7 +54,7 @@ if x, y, over := box.PointerPosition(); over { ... } // 要素内の座標。聞
 ```
 
 - `Dragged` は要素を押している間に動いた量（要素の座標系）。押したままポインタが要素の外に出た場合は確かめていない
-- `Clicked` は「離した時点」なので、その時点の `PointerPosition` で、絵のどこを押したかが分かる（Heatmap の hit test）
+- `Clicked` は「クリックされたか」だけで、**どこをクリックしたかは返さない**。最初は `Clicked()` のフレームの `PointerPosition` で升目を決めていたが、移動・押す・離すが 1 フレームの間にまとめて届くと（automation の `click` など）ポインタがまだ升目の上に来ていないことがあり、実ウィンドウの E2E が時々落ちた。`HandleInput` で `InputPointerDown` の座標（要素基準）を `ui.Local` に覚え、`Clicked()` のときにそれを使うようにして安定した（`false` を返せば Clicked やフォーカスは普段どおり動く）
 - 毎キー・IME・スクロール・ピンチまで自分で受けたいときは `HandleInput(func(ui.InputEvent) bool)`。ただし次の組み立てより前に呼ばれるコールバックなので、そこでは `SetChanged` などの組み立て中の操作はできない
 
 ### 描くのは `Draw`、描く関数では状態を読まない
@@ -116,6 +116,7 @@ go tool mygo vet examples/customwidget examples/customwidget/widget
 - テスターの `Find` / `Click` はテキストか `Label` で要素を探すので、テキストを持たない自作 widget には **`Label` を付けておくとテストしやすい**（自動で支援技術向けの名前にもなる）
 - 描くだけの部分（Heatmap の升目）は要素ではないので、テスターでも E2E でも **座標** で操作する。widget の箱は `tt.Find` / `tree` の `bounds` で取れるので、そこからの相対で計算する
 - 戻り値を `ui.Element` にしておくと、呼び出し側で `Changed()` を見たり、さらにスタイルを足したりできる。`Heatmap` のようにホバー中の位置など付加情報も返したいときは複数の戻り値にした
+- 自作 widget の下に値のテキストを置くと、数字で文字幅が変わり、横に並べた隣の部品が揺れる（左の Knob を回すと右の Knob が動いた）。テキストを含む列に `Width` を付けて固定した。Tester で隣の要素の `Find` の X が動かないことを確かめるテストも置いた
 - `Chip` のように既存の振る舞いで足りるなら、Draw から書くより base を使う方が短く、キーボード・フォーカス・アクセシビリティも揃う。Draw から書くのは base に無い操作（回す、升目を選ぶ）のときだけでよい
 
 ## まだ試していないもの

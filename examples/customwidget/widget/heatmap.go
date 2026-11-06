@@ -10,7 +10,8 @@ import (
 // 升目。mygo の chart パッケージにも無い。
 //
 // 升目は要素ではなく Painter で描くだけなので、どの升目の上にポインタが
-// あるかは PointerPosition から自分で計算する（hit test）。
+// あるかは PointerPosition から、どの升目を押したかは HandleInput の
+// 押した座標から、自分で計算する（hit test）。
 //
 //   - values[i] は 0〜1。i = 週*7 + 曜日
 //   - 升目をクリックすると *selected がその番号になる（-1 は無し）
@@ -48,9 +49,22 @@ func Heatmap(c *ui.Context, values []float64, selected *int, label string) (ui.E
 		hovered = at(x, y)
 	}
 
+	// クリックした升目は、押した瞬間の座標で決める。Clicked() のフレームの
+	// PointerPosition は、移動・押す・離すが 1 フレームの間にまとめて来ると
+	// （automation の click など）まだ升目の上を指していないことがある。
+	// HandleInput は次のフレームを待たずにイベントの座標を渡してくれるので、
+	// それを ui.Local（この要素がフレームをまたいで持つ状態）に覚えておく。
+	pressed := ui.Local(box, "pressed", func() int { return -1 })
+	box.HandleInput(func(ev ui.InputEvent) bool {
+		if ev.Kind == ui.InputPointerDown && ev.Button == 0 {
+			*pressed = at(ev.X, ev.Y)
+		}
+		return false // 取らずに流す。Clicked やフォーカスは通常どおり
+	})
+
 	old := *selected
-	if box.Clicked() && hovered >= 0 {
-		*selected = hovered
+	if box.Clicked() && *pressed >= 0 {
+		*selected = *pressed
 	}
 	move := func(d int) {
 		if *selected < 0 {

@@ -126,3 +126,22 @@ func TestSnapshot(t *testing.T) {
 }
 
 func fmtf(v float64) string { return fmt.Sprintf("%.2f", v) }
+
+// 左のつまみの値で「Volume 30%」の幅が変わっても、右のつまみは動かない。
+func TestToneDoesNotMove(t *testing.T) {
+	a := newApp()
+	tt := ui.NewTester(a.view, 420, 460)
+	var xs []float32
+	for _, v := range []float64{0, 0.05, 0.5, 1} {
+		a.volume = v
+		tt.Frame()
+		r, _ := tt.Find("Tone")
+		xs = append(xs, r.X)
+	}
+	for _, x := range xs[1:] {
+		if x != xs[0] {
+			t.Errorf("Tone x moved: %v", xs)
+			break
+		}
+	}
+}
