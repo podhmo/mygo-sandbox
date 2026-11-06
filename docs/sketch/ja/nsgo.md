@@ -93,8 +93,8 @@ go tool nsgo build -target macos_arm64 apps/agent-history/nsgo  # .app (16 MB, 4
 
 最初は `base`（見た目なし）と Tailwind クラスで組み、そのあと **`ui` パッケージ（Onevra のテーマ）の部品に置き換えて見た目を整えた**。
 
-実装したもの（元のアプリの一部）: セッション一覧（仮想化リスト、クリックと矢印キーで選択）、検索、エージェントでの絞り込み（件数つき）、セッションを選ぶと会話を別 goroutine で読み込んで表示、本文は Markdown を `ui.TextView` で表示、発言の種類をバッジで表示、マスクの切り替え（一覧・本文とも）、会話を Markdown にしてクリップボードへコピー（Prompts only / Prompts and replies / Prompts, replies and thinking のメニュー）、Tools / Thinking の表示切り替え（既定は非表示）、会話の読み込みエラーの表示（読めたぶんの上に出す）、サイドバーの開閉と幅の変更。
-実装していないもの: プロジェクト見出し、ツール呼び出し・Thinking・Summary の折りたたみ、Notice の 1 行表示、ユーザー発言の `Queued` 表示、ヘッダーのメタ情報（ブランチ・期間・prompt 数・サイズ）、Copy resume command / Copy session ID、ホームを `~` にするパス表示。
+実装したもの: **元の mygo 版の機能はひととおり**。セッション一覧（プロジェクト＝作業ディレクトリごとの見出し付き、仮想化リスト、クリックと矢印キーで選択）、検索、エージェントでの絞り込み（件数つき、狭いとドロップダウン）、会話を別 goroutine で読み込んで表示、ヘッダーのメタ情報（エージェント・パス・ブランチ・期間・prompt 数・サイズ）、Copy resume command / Copy session ID、Copy as Markdown のメニュー（3 段階）、Tools / Thinking の表示切り替え（既定は非表示）、ツール呼び出し・Thinking・Summary の折りたたみ、作業中に送った発言（`Queued`）の表示、Notice の 1 行表示、会話の読み込みエラーの表示、マスクの切り替え、サイドバーの開閉と幅の変更、パスのホームを `~` に縮める表示。
+元に無くて増えたもの: サイドバーの開閉、行ごとのエージェントのバッジ、`nsgo test -target macos` での実ウィンドウのテスト。
 
 対応表（右が `ui` 版で使ったもの）:
 
@@ -110,12 +110,14 @@ go tool nsgo build -target macos_arm64 apps/agent-history/nsgo  # .app (16 MB, 4
 | 種類の表示 | `ui.Badge{TextFunc, ToneFunc}`（`ToneAccent` / `ToneInfo` / `ToneDanger` …） |
 | `ui.Button` | `ui.Button{Text, Icon: lucide.Copy, Variant: ui.ButtonSecondary, Small: true}`。アイコンは同梱の Lucide |
 | `ui.MenuButton(c, "Copy as Markdown", func(m){ m.Item(...).Chosen() })` | `ui.Menu{Trigger: ui.Button{...}, Children: []core.Node{ui.MenuItem{Text, Disabled, OnSelect}}}`。`Trigger` のボタンの `OnPress` / `Disabled` は使われないので、読み込み中に選べなくするのは各 `MenuItem.Disabled` で行う。テストでは `app.Press("id:copy")` で開いて `app.Press("role:menuitem Prompts only")` で選ぶ |
+| `ui.Collapsible(c.Key(i), title, &a.open[i], ...)` | `ui.Collapsible{Trigger: []core.Node{ui.Icon(lucide.Wrench, ...), ...}, Open, OnOpenChange, Content}`。行のセルは使い回されるので、開閉状態は行ではなくアプリ側に `map[entries の index]bool` の signal で持つ（セッションを読み込むたびに空にする） |
+| `ListState.Header`（見出しの行を選択で飛ばす） | `ui.List` には無いので、`cx.Effect` で選択を見て、見出しの行が選ばれたら動いてきた向きの隣のセッションに `selection.Set` し直す |
 | `a.shown`（表示する entries の index を毎回作り直す） | `core.NewMemoFunc` で `entries` と `showTools` / `showThinking` から作る。チェックボックスを切り替えると List の件数と行が更新される |
 | `ui.Spinner` | `ui.Spinner{Label}` |
 | `win.Update(func(){...})` | `cx.Post(func(){...})`（どの goroutine から呼んでもよい） |
 | `mygo.Clipboard.WriteText` | `cx.SetClipboard(text)`。テストでは `app.Clipboard` で中身を見られるので、**差し替え用の関数フィールドが要らない** |
 
-テスト（`main_test.go`）で確かめたこと: 一覧の表示、マスクで一覧のタイトルが伏せられる、検索とエージェントの絞り込みで件数が変わる、行のクリックと矢印キーで会話が切り替わる、Markdown の見出しが出る、コピーした Markdown の中身、マスクのチェックボックスが最初からオン、マスクを外すと本文のメールアドレスが出る、コピーの粒度（Prompts only では返答が入らない）、Tools / Thinking が既定で隠れていて切り替えで出入りする、`Entries` がエラーを返したときにエラーと読めたぶんの両方が出る。読み込みは goroutine + `cx.Post` のままで、テスト側は `app.WaitFor("text:3 sessions", 5*time.Second)` で待つだけでよかった（mygo 版では読み込みを同期にする差し替えを入れていた）。
+テスト（`main_test.go`）で確かめたこと: 一覧の表示、マスクで一覧のタイトルが伏せられる、検索とエージェントの絞り込みで件数が変わる、行のクリックと矢印キーで会話が切り替わる、Markdown の見出しが出る、コピーした Markdown の中身、マスクのチェックボックスが最初からオン、マスクを外すと本文のメールアドレスが出る、コピーの粒度（Prompts only では返答が入らない）、Tools / Thinking が既定で隠れていて切り替えで出入りする、`Entries` がエラーを返したときにエラーと読めたぶんの両方が出る、ツール・Thinking・Summary が畳まれていて開ける、作業中の発言と Notice の表示、プロジェクト見出しとホームの `~` 表示、メタ情報、ID と再開コマンドのコピー（再開できないエージェントにはボタンが無い）、矢印キーで見出しの行を飛ばす（計 8 テスト）。読み込みは goroutine + `cx.Post` のままで、テスト側は `app.WaitFor("text:3 sessions", 5*time.Second)` で待つだけでよかった（mygo 版では読み込みを同期にする差し替えを入れていた）。
 
 ### 書いてみて分かったこと
 
@@ -129,13 +131,15 @@ go tool nsgo build -target macos_arm64 apps/agent-history/nsgo  # .app (16 MB, 4
 8. `base` だけで組むと、チェックボックスの印のような細部まで自分で作ることになる。`ui` に置き換えたら Tailwind クラスはほぼ不要になり、色は `ui.ColorsOf(cx)`、文字は `ui.Textf(fn, size, weight, colors.Muted)` で揃えられる。
 9. `nsgo check` は Go だけのアプリでは失敗した（TSX の型を生成するために `tsx` パッケージを足して `go list` するので、go.mod に無い依存を要求される）。`vet` までは通る。Go だけのアプリでは使わなくてよい。
 11. **`ui.Segmented` は狭いと文字が重なる**。セグメントは等幅に縮み、はみ出しも折り返しもしないので、実データ（All + 4 エージェント、3 桁の件数）を狭いサイドバーで見ると「Claude Code」「Codex」などのラベルと件数が重なって読めなくなった。対処として、セグメントのラベルは短い `AssistantName`（Claude / Codex / Devin / OpenCode）にし、`core.Show{When: func() bool { return sidebarWidth.Get() >= needed() }}` で幅が足りないときは `ui.Select`（ドロップダウン）に切り替えた。必要な幅は「一番長いセグメント × 個数」で見積もる（等幅なので合計ではない）。サイドバーの幅は `SidebarShell` の `Width` / `OnWidthChange` で signal に入っているので、ドラッグ中にしきい値をまたぐとその場で切り替わる。`ui.Select` は `Option.Count` を使わず `Label` も固定の文字列なので、件数入りのラベルは `core.Dynamic` の中で作り直している。
-12. 実行ファイルのサイズは mygo 版 21.6 MB / nsgo 版 24.9 MB（`go build`、どちらもドメイン込み、`base` 版で計測）。`.app` は nsgo が stripped で 16 MB。
+12. **種類で形が違う行は `core.Dynamic` で作り直す**。会話の 1 行は User（枠付き）/ アシスタント（Markdown）/ ツール（折りたたみ）/ Notice（1 行）で構造が違う。`…Func` で中身だけ差し替える書き方では書きにくいので、行全体を `core.Dynamic(func(cx){ ... })` にし、`shown.Get()` と `r.Index()` を読んで、そのときの発言から静的な値で組み立てた。表示する発言が変わったときだけ作り直される。サイドバーの見出しとセッションの 2 種類は `core.Show{When: 見出しか}` で出し分けた（`When` が変わったときだけ作り直す）。
+13. **テストのセレクタの細かい規則**: `text:` は **部分一致**（`text:hello world` は「Go で hello world」にも当たる）で、`text:"…"` が全体の一致、`text:/…/` は **正規表現**（なので `text:/tmp/demo` は「'e' is not a regular expression flag」で落ちる。`text:"/tmp/demo"` と書く）。`id:entry-1 >> text:"Thinking"` のように ` >> ` で入れ子にでき、ヘッダーの Thinking チェックボックスと折りたたみの Thinking を区別できた。`ui.Collapsible` の `TestID` は外側の箱に付き、押せるのは中のトリガーなので、`app.Press("id:entry-5")` は「no pressable view」になる（トリガーの文字か ` >> ` で指定する）。
+14. 実行ファイルのサイズは mygo 版 21.6 MB / nsgo 版 24.9 MB（`go build`、どちらもドメイン込み、`base` 版で計測）。`.app` は nsgo が stripped で 16 MB。
 
 ### 移行するなら
 
 - 一覧は数千件でも `ui.List`（`core.List` の仮想化）で足りるはず（gallery には 100 万行の `DataTable` デモもある）。会話ビューも `core.List` にして、`EstimatedSize` と実測の補正に任せられる。
 - 長い会話の 1 エントリが巨大な Markdown のときの `TextView` の重さは未計測。必要なら `ui.Collapsible` で畳むか、ツール結果は `textview` ではなく等幅の `core.Text` にする。
-- プロジェクト見出しは `core.List` の `StickyHeaderIndicesFunc` で、コピーの粒度は `ui.Menu` 系で作れそう（未検証）。
+- プロジェクト見出しをスクロール中も上に残したいなら `core.List` の `StickyHeaderIndicesFunc` が使えそう（`ui.List` には無いので、選択やキー操作を自前で持つことになる。未検証）。
 - ドメイン層は UI 非依存なので、mygo 版と nsgo 版を並べて保守できる（今回の構成）。
 
 ## 未検証・次に試したいこと
