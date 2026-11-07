@@ -93,7 +93,7 @@ func TestViewer(t *testing.T) {
 			t.Errorf("missing %q: texts=%q", s, tt.Texts())
 		}
 	}
-	if hasPrefix(tt.Texts(), "Alpha · ") == "" {
+	if !tt.HasText("Alpha") {
 		t.Errorf("assistant label comes from the source: %q", tt.Texts())
 	}
 	if tt.HasText("考え中") || tt.HasText("hello world") && hasPrefix(tt.Texts(), "⚙ Bash") != "" {
@@ -122,16 +122,33 @@ func TestViewer(t *testing.T) {
 	if got := tt.Clipboard(); got != "alpha resume a1" {
 		t.Errorf("copied=%q", got)
 	}
+	if !tt.HasText("Copied: alpha resume a1") {
+		t.Errorf("no toast: %q", tt.Texts())
+	}
 
-	// 取得元で絞り込み
-	if err := tt.Click("Beta Agent"); err != nil {
-		t.Fatal(err)
+	// Tools / Thinking の切り替えには件数が出る
+	if !tt.HasText("Tools  1") || !tt.HasText("Thinking  1") {
+		t.Errorf("toggle counts: %q", tt.Texts())
 	}
-	if a.nRows != 2 {
-		t.Errorf("agent filter: rows=%d", a.nRows)
+
+	// 取得元で絞り込み (ドロップダウン)
+	chooseAgent := func(name string) {
+		t.Helper()
+		if err := tt.Click("Agent"); err != nil {
+			t.Fatal(err)
+		}
+		if err := tt.Click(name); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
 	}
-	if err := tt.Click("All"); err != nil {
-		t.Fatal(err)
+	chooseAgent("Beta Agent")
+	if a.nRows != 2 || a.agent != "Beta Agent" {
+		t.Errorf("agent filter: rows=%d agent=%q", a.nRows, a.agent)
+	}
+	chooseAgent("All agents")
+	if a.nRows != 3 {
+		t.Errorf("all agents: rows=%d", a.nRows)
 	}
 
 	// 検索で絞り込み
@@ -167,8 +184,14 @@ func TestMasking(t *testing.T) {
 	tt := ui.NewTester(a.view, 1000, 700)
 
 	// 既定でオン: サイドバーのパスとタイトルも伏せる
-	if !tt.HasText("~/work") || !tt.HasText("‹user› の設定を確認") || tt.HasText("alice の設定を確認") {
+	// プロジェクトの見出しはディレクトリ名と親のパスに分けて出す
+	if !tt.HasText("work") || !tt.HasText("~") || !tt.HasText("‹user› の設定を確認") || tt.HasText("alice の設定を確認") {
 		t.Fatalf("sidebar not masked: %q", tt.Texts())
+	}
+	for _, s := range tt.Texts() {
+		if strings.Contains(s, "alice") {
+			t.Errorf("unmasked text in the sidebar: %q", s)
+		}
 	}
 	if err := tt.Click("‹user› の設定を確認"); err != nil {
 		t.Fatal(err)
