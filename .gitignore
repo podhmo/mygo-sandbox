@@ -4,4 +4,6 @@ build/
 dist/
 .nsgo/
 
-agent-history
+# go build で出来るバイナリ（リポジトリ直下 / アプリのディレクトリ）。ディレクトリの apps/agent-history は無視しない
+/agent-history
+/apps/agent-history/agent-history
