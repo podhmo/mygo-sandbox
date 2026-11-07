@@ -13,6 +13,7 @@
 | [`examples/`](examples) | native UI の小さな例: `counter`（最小）、`todo`（入力・リスト）、`async`（goroutine からの更新）、`customwidget`（mygo に無い部品を自作する: つまみ、ヒートマップ、ToggleBase のチップ） |
 | [`apps/agent-history/`](apps/agent-history) | Claude Code / Codex / Devin / OpenCode の過去のセッションを一覧して読むビューア。マスキング、マークダウンでのコピーに対応 |
 | [`apps/agent-history/nsgo/`](apps/agent-history/nsgo) | 同じビューアの UI を [nsgo](https://github.com/oneo-me/nsgo) の `ui` 部品で書き直したもの（元の機能はひととおり） |
+| [`apps/agent-history/guigui/`](apps/agent-history/guigui) | 同じビューアの UI を [guigui](https://github.com/guigui-gui/guigui) で書き直したもの（プロトタイプ） |
 | [`docs/sketch/ja/`](docs/sketch/ja) | 調査メモ（下記） |
 
 ## 使い方
@@ -31,4 +32,5 @@ go tool mygo build apps/agent-history  # .app / .dmg を作る
 - [mygo-examples.md](docs/sketch/ja/mygo-examples.md): examples やアプリを作って分かったこと
 - [mygo-testing.md](docs/sketch/ja/mygo-testing.md): mygo のテストの仕方（Tester と automation プラグインでの実ウィンドウ E2E）とスクリーンキャプチャ。nsgo との比較
 - [mygo-custom-widgets.md](docs/sketch/ja/mygo-custom-widgets.md): mygo に無い部品の作り方（Draw・入力・base・アクセシビリティ）と、作って動かした記録
+- [guigui.md](docs/sketch/ja/guigui.md): guigui（Ebitengine 上の GUI フレームワーク）の調査と agent-history の試作。mygo / nsgo との比較
 
