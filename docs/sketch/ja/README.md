@@ -14,5 +14,6 @@
 | [codex-session-files.md](./codex-session-files.md) | Codex CLI のセッションファイル（対話履歴）の調査メモ |
 | [devin-session-files.md](./devin-session-files.md) | Devin CLI のセッションファイル（対話履歴）の調査メモ |
 | [opencode-session-files.md](./opencode-session-files.md) | OpenCode のセッションファイル（対話履歴）の調査メモ |
+| [agy-session-files.md](./agy-session-files.md) | Antigravity CLI（agy）のセッションファイル（対話履歴）の調査メモ |
 | [agent-history-codex-task.md](./agent-history-codex-task.md) | Codex への依頼: agent-history の Codex 対応 |
 | [agent-history-masking.md](./agent-history-masking.md) | agent-history のマスキング対象の定義 |
