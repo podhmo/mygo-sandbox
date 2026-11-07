@@ -22,6 +22,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 
+	"github.com/podhmo/mygo-sandbox/apps/agent-history/internal/agy"
 	"github.com/podhmo/mygo-sandbox/apps/agent-history/internal/claudecode"
 	"github.com/podhmo/mygo-sandbox/apps/agent-history/internal/codex"
 	"github.com/podhmo/mygo-sandbox/apps/agent-history/internal/devin"
@@ -455,6 +456,7 @@ type options struct {
 	codexRoot  string
 	devinRoot  string
 	ocRoot     string
+	agyRoot    string
 	mask       bool
 	maskWords  string
 }
@@ -466,6 +468,7 @@ func sources(opt options) []history.Source {
 		codex.New(opt.codexRoot),
 		devin.New(opt.devinRoot),
 		opencode.New(opt.ocRoot),
+		agy.New(opt.agyRoot),
 	}
 }
 
@@ -475,6 +478,7 @@ func main() {
 	flag.StringVar(&opt.codexRoot, "codex-root", codex.DefaultRoot(), "Codex home directory (contains sessions and archived_sessions)")
 	flag.StringVar(&opt.devinRoot, "devin-root", devin.DefaultRoot(), "Devin data directory (contains cli/sessions.db)")
 	flag.StringVar(&opt.ocRoot, "opencode-root", opencode.DefaultRoot(), "OpenCode data directory (contains opencode.db)")
+	flag.StringVar(&opt.agyRoot, "agy-root", agy.DefaultRoot(), "Antigravity CLI data directory (contains brain)")
 	flag.BoolVar(&opt.mask, "mask", true, "mask credentials and private information on start (toggle in the window)")
 	flag.StringVar(&opt.maskWords, "mask-words", "", "comma-separated extra words to mask, such as a GitHub username or company name")
 	flag.Parse()

@@ -158,7 +158,7 @@ transcript には作業ディレクトリもタイトルも入っていない。
 - 会話の期間は transcript の `created_at` の最小・最大で取れる。
 - ブランチを記録している場所は見つからなかった。
 
-今回の実装を作るなら、セッションの列挙は `brain/*/.system_generated/logs/transcript_full.jsonl` を起点にし、タイトルは `annotations/`、作業ディレクトリは `conversation_metadata.json` → `history.jsonl` の順で補う、というのが SQLite を使わない範囲での案。作業ディレクトリが取れない会話が出るのは許容する。
+実装（`apps/agent-history/internal/agy`）では、セッションの列挙は `brain/*/.system_generated/logs/transcript_full.jsonl` を起点にした（無ければ `transcript.jsonl`）。タイトルは `annotations/` → `conversation_metadata.json` → 最初の入力の順、作業ディレクトリは `conversation_metadata.json` の `WorkspaceURIs` → `history.jsonl` の `conversationId` → `history.jsonl` で最初の入力と同じ `display` を持つ行の `workspace`、の順で補う。SQLite は使わない。作業ディレクトリが取れない会話が出るのは許容する。
 
 ## SQLite: `conversations/<ID>.db`
 
@@ -194,6 +194,23 @@ cd '/path/to/workspace' && agy --conversation '2e03f28f-1458-420c-a692-3b5ad4780
 - 会話は作業ディレクトリ（ワークスペース）と結び付いているので、そのディレクトリで実行する形にする。別のディレクトリから ID 指定で再開できるかは未確認。
 - 対話中の `/resume` も `history.jsonl` に `slash_command` として残っていた。
 - **実セッションを再開する操作は実施していない**。`--help` の確認だけ。
+
+## 実装と実データでの確認
+
+`apps/agent-history/internal/agy`（mygo 版の UI だけに追加。nsgo 版は未対応）。
+
+- `USER_INPUT` → `KindUser`（`<USER_REQUEST>` の中身。タグが無ければ全体）。`PLANNER_RESPONSE` の `thinking` → `KindThinking`、`content` → `KindAssistant`、`tool_calls` → `KindTool`。`SYSTEM_MESSAGE` → `KindNotice`（`content=` 以降）。
+- `GENERIC` は直前の `PLANNER_RESPONSE` の結果待ちの呼び出しを先頭から順に埋める。結果待ちが無い `GENERIC` は表示しない。人間の入力や次の応答が来たら結果待ちは捨てる。
+- ツールの入力は `CommandLine` か `Path` があればそれ、無ければ args の JSON（600 bytes まで）。結果は先頭の `Created At` / `Completed At` の 2 行を除いて `history.TruncateResult` で切る。`status: ERROR`、`error` フィールド、`Command exited with code N`（N が 0 以外）をエラーとする。
+- `transcript.jsonl` を読むときは、JSON 文字列に包まれた args の値を 1 段ほどく。
+- 再開コマンドは `cd <cwd> && agy --conversation <ID>`。
+
+2026-11-07、一時テストで `agy.New("").Sessions()` と全 `Entries()` を実データに対して実行した。
+
+- 2 セッション、一覧の読み込みは 7.7 ms（1 回だけ、キャッシュ状態は制御していない）。
+- 227 ステップの会話: user 5、assistant 5、thinking 40、tool 109（結果の無いもの 0、エラー 7）、notice 1。タイトル・作業ディレクトリは `annotations/` と `conversation_metadata.json` から取れた。
+- 途中で止めた会話: `conversation_metadata.json` に入っていなかったが、作業ディレクトリは `history.jsonl` の入力文字列から引けた。中断した最後の呼び出し 1 件は結果が空のまま表示される。
+- 一時テストファイルは確認後に削除した。
 
 ## 未対応・不明な点
 

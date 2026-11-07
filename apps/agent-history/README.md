@@ -17,6 +17,7 @@ go test ./apps/agent-history/...                # ウィンドウ無しでテス
 | Codex | `internal/codex` | `$CODEX_HOME` または `~/.codex`（`-codex-root` で変更） | [codex-session-files.md](../../docs/sketch/ja/codex-session-files.md) |
 | Devin | `internal/devin` | `$XDG_DATA_HOME/devin` または `~/.local/share/devin` の `cli/sessions.db`（`-devin-root` で変更） | [devin-session-files.md](../../docs/sketch/ja/devin-session-files.md) |
 | OpenCode | `internal/opencode` | `$XDG_DATA_HOME/opencode` または `~/.local/share/opencode` の `opencode.db`（`-opencode-root` で変更） | [opencode-session-files.md](../../docs/sketch/ja/opencode-session-files.md) |
+| Antigravity CLI（agy） | `internal/agy` | `~/.gemini/antigravity-cli` の `brain/<ID>/.system_generated/logs/transcript_full.jsonl`（`-agy-root` で変更） | [agy-session-files.md](../../docs/sketch/ja/agy-session-files.md) |
 
 Devin と OpenCode は SQLite の DB に履歴を持つ。実行中でも読めるよう読み取り専用（`mode=ro`）で開き、書き込みはしない。
 
@@ -59,6 +60,7 @@ apps/agent-history/
   internal/codex/         Codex の Source 実装と testdata
   internal/devin/         Devin の Source 実装（sessions.db を読む）
   internal/opencode/      OpenCode の Source 実装（opencode.db を読む）
+  internal/agy/           Antigravity CLI の Source 実装（transcript の JSONL を読む。SQLite は使わない）
   internal/sqlitedb/      SQLite を読み取り専用で開く小道具（modernc.org/sqlite, cgo 不要）。sqlitetest はテスト用の DB 作成
   internal/redact/        表示用のマスキング
 ```
